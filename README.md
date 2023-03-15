@@ -1749,3 +1749,908 @@ https://gitlab.com/alexdcox/node-launcher/-/tree/add-dash
 
 Posted on the discord. That'll do for now.
 
+## Batch Two
+
+```
+09.02.2023 Thursday 4h
+03.03.2023 Friday 7h
+04.03.2023 Saturday 2h
+06.03.2023 Monday 6h
+08.03.2023 Monday 4h
+09.03.2023 Thursday 4h
+13.03.2023 Monday 14h
+14.03.2023 Tuesday 4h
+
+Total 45h
+```
+
+### 09.02.2023 Thursday 4h
+
+`Itzamna` said he tried the following command:
+
+```
+docker build -t registry.gitlab.com/mayachain/devops/node-launcher:dash-daemon-0.17.0.3 ci/images/dash-daemon
+```
+
+And he got the error:
+
+> The command '/bin/sh -c apt-get install -y jq curl iputils-ping net-tools vim socat' returned a non-zero code: 100
+
+Also, there are lint errors.
+
+`make lint`
+```
+  version: 1.101.0
+all modules verified
+Linting handlers file
+Handler: x/thorchain/handler_add_liquidity.go... OK
+Handler: x/thorchain/handler_ban.go... OK
+Handler: x/thorchain/handler_bond.go... OK
+Handler: x/thorchain/handler_common_outbound.go... OK
+Handler: x/thorchain/handler_consolidate.go... OK
+Handler: x/thorchain/handler_deposit.go... OK
+Handler: x/thorchain/handler_donate.go... OK
+Handler: x/thorchain/handler_errata_tx.go... OK
+Handler: x/thorchain/handler_ip_address.go... OK
+Handler: x/thorchain/handler_leave.go... OK
+Handler: x/thorchain/handler_manage_thorname.go... OK
+Handler: x/thorchain/handler_migrate.go... OK
+Handler: x/thorchain/handler_mimir.go... OK
+Handler: x/thorchain/handler_network_fee.go... OK
+Handler: x/thorchain/handler_node_pause_chain.go... OK
+Handler: x/thorchain/handler_noop.go... OK
+Handler: x/thorchain/handler_observed_txin.go... OK
+Handler: x/thorchain/handler_observed_txout.go... OK
+Handler: x/thorchain/handler_outbound_tx.go... OK
+Handler: x/thorchain/handler_ragnarok.go... OK
+Handler: x/thorchain/handler_refund.go... OK
+Handler: x/thorchain/handler_reserve_contrib.go... OK
+Handler: x/thorchain/handler_send.go... OK
+Handler: x/thorchain/handler_set_node_keys.go... OK
+Handler: x/thorchain/handler_solvency.go... OK
+Handler: x/thorchain/handler_swap.go... OK
+Handler: x/thorchain/handler_switch.go... OK
+Handler: x/thorchain/handler_tss.go... OK
+Handler: x/thorchain/handler_tss_keysign.go... OK
+Handler: x/thorchain/handler_unbond.go... OK
+Handler: x/thorchain/handler_version.go... OK
+Handler: x/thorchain/handler_withdraw.go... OK
+Handler: x/thorchain/handler_yggdrasil.go... OK
+Linting managers.go file
+
+OK
+./scripts/lint-erc20s.bash: line 6: jq: command not found
+make: *** [Makefile:110: lint] Error 127
+```
+
+`apt install -y jq`
+
+```
+...
+Linting managers.go file
+
+OK
+OK
+go: downloading golang.org/x/tools v0.1.8
+go: downloading golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
+go: downloading golang.org/x/xerrors v0.0.0-20220517211312-f3a8303e98df
+/root/go/pkg/mod/golang.org/x/tools@v0.1.8/internal/gocommand/vendor.go:17:2: missing go.sum entry for module providing package golang.org/x/mod/semver (imported by golang.org/x/tools/internal/gocommand); to add:
+  go get golang.org/x/tools/internal/gocommand@v0.1.8
+make: *** [Makefile:111: lint] Error 1
+```
+
+`go get golang.org/x/tools/internal/gocommand@v0.1.8`
+
+```
+main: internal error: package "errors" without types was imported from "gitlab.com/thorchain/thornode/x/thorchain/keeper/types"
+exit status 1
+make: *** [Makefile:111: lint] Error 1
+```
+
+Not entirely sure how to tackle that.. Trying:
+
+`go mod tidy`
+
+```
+gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/bitcoin imports
+  github.com/btcsuite/btcd/chaincfg/chainhash loaded from github.com/btcsuite/btcd@v0.22.0-beta,
+  but go 1.16 would fail to locate it:
+  ambiguous import: found package github.com/btcsuite/btcd/chaincfg/chainhash in multiple modules:
+  github.com/btcsuite/btcd v0.22.0-beta (/root/go/pkg/mod/github.com/btcsuite/btcd@v0.22.0-beta/chaincfg/chainhash)
+  github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 (/root/go/pkg/mod/github.com/btcsuite/btcd/chaincfg/chainhash@v1.0.1)
+
+To proceed despite packages unresolved in go 1.16:
+  go mod tidy -e
+If reproducibility with go 1.16 is not needed:
+  go mod tidy -compat=1.17
+For other options, see:
+  https://golang.org/doc/modules/pruning
+```
+
+`go mod tidy -compat=1.17`
+
+Comes from here:  
+https://go.googlesource.com/tools/+/refs/heads/master/go/packages/packages.go?autodive=0%2F%2F#1027
+
+What part of the lint is actually failing here:
+
+```
+./scripts/lint.sh
+go run tools/analyze/main.go ./common/... ./constants/... ./x/...
+./scripts/trunk check --no-fix --upstream origin/develop
+```
+
+It's the analyze tool.  
+Searching:  
+"go tools analyze errors imported without type"  
+
+https://github.com/golang/go/issues/37617
+
+```
+$ go get golang.org/x/tools/go/analysis
+go: downloading golang.org/x/tools v0.5.0
+go: downloading golang.org/x/mod v0.7.0
+go: downloading golang.org/x/net v0.5.0
+go: downloading golang.org/x/sync v0.1.0
+go: downloading golang.org/x/sys v0.4.0
+go: downloading golang.org/x/term v0.4.0
+go: downloading golang.org/x/text v0.6.0
+go: upgraded golang.org/x/mod v0.6.0-dev.0.20211013180041-c96bc1413d57 => v0.7.0
+go: upgraded golang.org/x/net v0.0.0-20220607020251-c690dde0001d => v0.5.0
+go: upgraded golang.org/x/sync v0.0.0-20210220032951-036812b2e83c => v0.1.0
+go: upgraded golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a => v0.4.0
+go: upgraded golang.org/x/term v0.0.0-20210927222741-03fcf44c2211 => v0.4.0
+go: upgraded golang.org/x/text v0.3.7 => v0.6.0
+go: upgraded golang.org/x/tools v0.1.8 => v0.5.0
+```
+
+```
+main: 3879 errors during loading
+exit status 1
+make: *** [Makefile:111: lint] Error 1
+```
+
+Wow. Must be proto.
+
+`protob-docker`
+
+Oops ran a `make test`, may as well let it run to double check.  
+That went well, back to linting.  
+
+```
+  ISSUES
+
+bifrost/pkg/chainclients/dash/client.go:241:39
+ 241:39  high  captLocal: `MaximumConfirm' should not be capitalized  golangci-lint/gocritic
+ 389:18  high  func `(*Client).confirmTx` is unused                   golangci-lint/unused
+ 738:30  high  G601: Implicit memory aliasing in for loop.            golangci-lint/gosec
+
+bifrost/pkg/chainclients/dash/signer.go:144:4
+ 144:4  high  assignOp: replace `toSpend = toSpend + item.Amount` with `toSpend += item.Amount`  golangci-lint/gocritic
+
+bifrost/pkg/chainclients/dash/signer_test.go:83:12
+ 83:12  high  ineffectual assignment to err  golangci-lint/ineffassign
+
+build/scripts/node-status.sh:30:18
+ 30:18  high  ${$x} is invalid. For expansion, use ${x}. For indirection, use arrays, ${!x} or (for sh) eval.  shellcheck/SC2298
+ 30:19  high  $ cannot be followed by a word                                                                   shfmt/parse
+
+✖ 7 new blocking issues
+Run trunk upgrade to upgrade trunk and 10 linters
+make: *** [Makefile:112: lint] Error 1
+```
+
+`./scripts/trunk check --no-fix --upstream origin/develop`
+
+Sorted.
+
+Back to checking out the docker image:
+
+Commit `3705ce5` of branch `add-dash` of repo `node-launcher`:
+
+```
+docker system prune -a
+
+docker build \
+  -t registry.gitlab.com/mayachain/devops/node-launcher:dash-daemon-0.17.0.3 \
+  ci/images/dash-daemon
+```
+
+```
+[+] Building 57.9s (10/10) FINISHED
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                          0.1s
+ => => transferring dockerfile: 322B                                                                                                                                                                                                          0.0s
+ => [internal] load .dockerignore                                                                                                                                                                                                             0.1s
+ => => transferring context: 2B                                                                                                                                                                                                               0.0s
+ => [internal] load metadata for docker.io/dashpay/dashd:0.17.0.3                                                                                                                                                                             1.8s
+ => [auth] dashpay/dashd:pull token for registry-1.docker.io                                                                                                                                                                                  0.0s
+ => [1/4] FROM docker.io/dashpay/dashd:0.17.0.3@sha256:ad73808606e69722dd2b3d99b98d39952d2d6f344929295fe43f481a33990649                                                                                                                       6.9s
+ => => resolve docker.io/dashpay/dashd:0.17.0.3@sha256:ad73808606e69722dd2b3d99b98d39952d2d6f344929295fe43f481a33990649                                                                                                                       0.1s
+ => => sha256:889a7173dcfeb409f9d88054a97ab2445f5a799a823f719a5573365ee3662b6f 189B / 189B                                                                                                                                                    0.6s
+ => => sha256:3b53ef3ed25adbeac39a14223f3fa89e2c5c8d6a9680ae068c2d13e2478e10a0 6.86kB / 6.86kB                                                                                                                                                0.0s
+ => => sha256:75585a48f11ebe18a2ed7d9dc13bbbaf19e5567f9fe6cd6477bba8dcd8d6641c 1.78kB / 1.78kB                                                                                                                                                0.0s
+ => => sha256:4bbfd2c87b7524455f144a03bf387c88b6d4200e5e0df9139a9d5e79110f89ca 26.70MB / 26.70MB                                                                                                                                              2.1s
+ => => sha256:d2e110be24e168b42c1a2ddbc4a476a217b73cccdba69cdcb212b812a88f5726 857B / 857B                                                                                                                                                    0.4s
+ => => sha256:ad73808606e69722dd2b3d99b98d39952d2d6f344929295fe43f481a33990649 1.08kB / 1.08kB                                                                                                                                                0.0s
+ => => sha256:b9bdfcf7f53afda8faa48246303f2e46ebb040b131e425b20eb21412780b7dc1 4.52kB / 4.52kB                                                                                                                                                0.7s
+ => => sha256:8b21b36ea40d113912d347f3d1e0b526b99e672a4e3bf10221e769b1ac5f8aa1 2.96MB / 2.96MB                                                                                                                                                2.1s
+ => => sha256:4c54e37c7b41ce875e1fe4618f6e6a9b11df8103aa41d82035437c40baa0d070 38.69MB / 38.69MB                                                                                                                                              4.8s
+ => => sha256:efabff4cd6928cdaa853eea4ef4063b27d61ef84459e9cefd1714ee1d66d86cb 464B / 464B                                                                                                                                                    2.5s
+ => => extracting sha256:4bbfd2c87b7524455f144a03bf387c88b6d4200e5e0df9139a9d5e79110f89ca                                                                                                                                                     2.6s
+ => => extracting sha256:d2e110be24e168b42c1a2ddbc4a476a217b73cccdba69cdcb212b812a88f5726                                                                                                                                                     0.0s
+ => => extracting sha256:889a7173dcfeb409f9d88054a97ab2445f5a799a823f719a5573365ee3662b6f                                                                                                                                                     0.0s
+ => => extracting sha256:b9bdfcf7f53afda8faa48246303f2e46ebb040b131e425b20eb21412780b7dc1                                                                                                                                                     0.0s
+ => => extracting sha256:8b21b36ea40d113912d347f3d1e0b526b99e672a4e3bf10221e769b1ac5f8aa1                                                                                                                                                     0.2s
+ => => extracting sha256:4c54e37c7b41ce875e1fe4618f6e6a9b11df8103aa41d82035437c40baa0d070                                                                                                                                                     1.0s
+ => => extracting sha256:efabff4cd6928cdaa853eea4ef4063b27d61ef84459e9cefd1714ee1d66d86cb                                                                                                                                                     0.0s
+ => [internal] load build context                                                                                                                                                                                                             0.1s
+ => => transferring context: 1.88kB                                                                                                                                                                                                           0.0s
+ => [2/4] RUN apt-get update -y && apt-get upgrade -y                                                                                                                                                                                        34.4s
+ => [3/4] RUN apt-get install -y jq curl iputils-ping net-tools vim socat                                                                                                                                                                    13.3s
+ => [4/4] COPY ./scripts /scripts                                                                                                                                                                                                             0.3s
+ => exporting to image                                                                                                                                                                                                                        1.1s
+ => => exporting layers                                                                                                                                                                                                                       1.1s
+ => => writing image sha256:99103aaea5a38ba039fb57f0cda4ea22aa217ef77e9133754570020680a32794                                                                                                                                                  0.0s
+ => => naming to registry.gitlab.com/mayachain/devops/node-launcher:dash-daemon-0.17.0.3
+```
+
+NOTE: The host machine requires `jq` to run lint scripts  
+NOTE: The host machine requires protobuf complier for `./scripts/protocgen.sh`
+
+Oh. Now we're miracuously getting an error on tx `30`.
+
+```
+1:10AM INF app/x/thorchain/handler_deposit.go:60 > receive MsgDeposit coins=[{"amount":"1000000000","asset":"THOR.RUNE"}] from=tthor1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6zdp257 memo=ADD:DASH.DASH:yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L
+1:10AM ERR app/x/thorchain/handler.go:246 > fail to parse memo error="yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L is not recognizable"
+1:10AM ERR app/x/thorchain/handler_deposit.go:169 > fail to process native inbound tx error="yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L is not recognizable" tx hash=207472C58B15DE93B3EB9FE9300A83FA20920759D1B96E064C6E6B2C30565D52
+```
+
+I think I see what's happening here.
+
+`make smoke` doesn't really test any part of the `thornode` codebase, it pulls
+everything from docker hub.
+
+You have to run `make build-mocknet` first to ensure you have local images built
+with the current repo, or you get the most recent `:mocknet` thorchain/bifrost
+image that was pushed to docker hub.
+
+Explains why my previous tests worked and this time - after running `docker
+system prune` - I got the same error on tx `30` as you. We're just using an
+image of TC without my changes.
+
+Managed to run the smoke tests to completion (`114`) after `make build-mocknet`.  
+If the ci/cd pipeline is not doing this already, it probably needs updating.
+
+- [x] make lint
+- [x] make test
+- [x] make smoke
+
+### 03.03.2023 Friday 7h
+
+Right, genesis node setup...
+
+https://gitlab.com/mayachain/devops/cluster-launcher  
+https://docs.mayaprotocol.com/maya-protocol-devs/mayanodes/kubernetes  
+https://docs.mayaprotocol.com/maya-protocol-devs/mayanodes/joining#create-maya-address-and-mnemonic  
+https://docs.mayaprotocol.com/maya-protocol-devs/mayanodes/deploying  
+
+```
+./mayanode-ops
+  |./cluster-launcher
+  |./node-launcher
+```
+
+ohio still seems to be a decent choice for a cheap region  
+us-east-2
+
+repo: `gitlab.com/mayachain/thornode`  
+branch: `genesis-nodes`
+
+---
+
+repo: `gitlab.com/mayachain/devops/cluster-launcher`  
+branch: `master`
+
+```
+export AWS_PROFILE="astound"
+make aws
+```
+
+That did a `cd aws && terraform init && terraform apply`
+
+```
+kubectl -n mayanode-stagenet get pods
+kubectl -n mayanode-stagenet exec --stdin --tty bitcoin-daemon-89965f8cf-vmq64 -- bitcoin-cli getblockcount
+kubectl -n mayanode-stagenet exec --stdin --tty ethereum-daemon-59989f76cf-v55kx -- bitcoin-cli getblockcount
+```
+
+Single large aws node showing up correctly.
+
+NOTE: The `make aws-backups` optional step fails with:
+> make: *** No rule to make target `aws-backups'.  Stop.
+
+Doesn't seem to exist anywhere in the project.
+
+---
+
+repo: `gitlab.com/mayachain/devops/node-launcher`
+branch: `master`
+
+Updated helm through brew.
+Updated helm diff manually.
+Installed all the GNU versions of commands and temporarily updated my path to use those in place of the macos default:
+
+```
+unalias grep
+export PATH="/opt/homebrew/opt/gawk/libexec/gnubin:$PATH"
+export PATH="/opt/homebrew/opt/gnu-sed/libexec/gnubin:$PATH"
+export PATH="/opt/homebrew/opt/gnu-tar/libexec/gnubin:$PATH"
+export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
+export PATH="/opt/homebrew/opt/findutils/libexec/gnubin:$PATH"
+```
+
+```
+make tools
+```
+
+It says:
+```
+export POD_NAME=$(kubectl get pods -n kube-system -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+  kubectl -n kube-system port-forward $POD_NAME 9090:9090
+  echo http://127.0.0.1:9090/
+```
+
+```
+make install
+```
+
+> stagenet  
+> validator  
+> mayanode-stagenet  
+
+Asked to provide secret. Set in pw valut as: `aws.eks.dashmaya.node`
+
+```
+error: unable to upgrade connection: container not found ("mnemonic")
+:: Mnemonic generation failed. Please try again.
+make: *** [Makefile:61: install] Error 1
+```
+
+Think the branch has to be: `genesis-daemons`.
+
+`registry.gitlab.com/mayachain/thornode:stagenet-1.96.1@sha256:479d54749f89661efea35847e4aaca49841710811b35e5ab1e3674712943f501`  
+`registry.gitlab.com/mayachain/thornode:stagenet-1.96.1@sha256:9503ce7031cf5a001481cb55f3dab0348ccd4bd8866033146fdcdc6888b9ae5e`
+
+Yeah most recent commits are to that branch. That image exists.  
+It looks like we're only running thornode and maya. Everything else is turned off.
+
+```
+Setting THORNode as Validator node
+Missing PEER / SEEDS
+```
+
+```
+thornode keys --keyring-backend file add "maya" --output json
+```
+
+It's just `BTC` and `ETH` that need to be up and running.
+
+> Yeah, you can start syncing if you want, you'll just have to update mayanode-stack/values.yaml to enable BTC, ETH
+
+
+> Error: Failed to render chart: exit status 1: Error: template: mayanode-stack/charts/midgard/templates/statefulset.yaml:6:8: executing "mayanode-stack/charts/midgard/templates/statefulset.yaml" at <include "midgard.labels" .>: error calling include: template: mayanode-stack/charts/midgard/templates/_helpers.tpl:40:30: executing "midgard.labels" at <include "daemon.tag" .>: error calling include: template: mayanode-stack/charts/ethereum-daemon/templates/_helpers.tpl:67:14: executing "daemon.tag" at <.Values.image.eth.tag>: nil pointer evaluating interface {}.tag
+
+
+Going to try again from clean:
+
+`make destroy`
+
+Also need to know how to set that mnemonic.
+
+> Error from server (NotFound): secrets "mayanode-mnemonic" not found
+
+So it's called `mayanode-mnemonic`
+
+```
+mnemonic="<REDACTED>"
+kubectl -n "mayanode-stagenet" create secret generic mayanode-mnemonic --from-literal=mnemonic="$mnemonic"
+kubectl -n "mayanode-stagenet" create secret generic thornode-mnemonic --from-literal=mnemonic="$mnemonic"
+```
+
+Test running with eth/btc enabled:
+```
+helm template mayanode-stagenet ./mayanode-stack \
+  --namespace mayanode-stagenet \
+  --set global.passwordSecret=mayanode-password \
+  --set global.mnemonicSecret=mayanode-mnemonic \
+  --set global.net=stagenet \
+  --set mayanode.type=validator \
+  --values ./mayanode-stack/stagenet.yaml \
+  --validate
+```
+
+```
+helm install mayanode-stagenet ./mayanode-stack \
+  --namespace mayanode-stagenet \
+  --set global.passwordSecret=mayanode-password \
+  --set global.mnemonicSecret=mayanode-mnemonic \
+  --set global.net=stagenet \
+  --set mayanode.type=validator \
+  --values ./mayanode-stack/stagenet.yaml \
+  --dry-run \
+  --debug
+```
+
+Trying a thornode stack:
+
+```
+helm template thornode-stagenet ./thornode-stack \
+  --namespace thornode-stagenet \
+  --set global.passwordSecret=thornode-password \
+  --set global.mnemonicSecret=thornode-mnemonic \
+  --set global.net=stagenet \
+  --set thornode.type=validator \
+  --values ./thornode-stack/stagenet.yaml \
+  --validate
+```
+
+```
+mayanode-stack/charts/midgard/templates/statefulset.yaml:6:8:
+
+midgard.labels
+mayanode-stack/charts/midgard/templates/_helpers.tpl:40
+midgard.labels
+daemon.tag
+mayanode-stack/charts/ethereum-daemon/templates/_helpers.tpl:67
+daemon.tag
+.Values.image.eth.tag
+nil pointer evaluating interface {}.tag
+
+Error: plugin "diff" exited with error
+helm.go:84: [debug] plugin "diff" exited with error
+```
+
+I deleted everything in statefulset.yaml and get the same error.
+
+```
+helm dependency build ./mayanode-stack && helm lint ./mayanode-stack
+```
+
+Got past the very strange helm modgard/ethereum template error.
+Now I'm faced with another image pull issue:
+
+```
+docker image pull registry.gitlab.com/mayachain/devops/node-launcher:bitcoin-daemon-24.0.1@sha256:e67498d34f39fca2050ef2ecefcba324f4acaf7b9ab2491748565d9a7fcfc876
+```
+
+Just ran it without the sha and updated manually.
+
+Testing ethereum:
+
+```
+kubectl -n mayanode-stagenet get pods
+kubectl -n mayanode-stagenet exec --stdin --tty ethereum-daemon-59989f76cf-jhsgw -- sh
+geth attach
+eth.syncing
+eth.blockNumber
+```
+
+Damn. That returned `false` and `0`.
+
+```
+kubectl -n mayanode-stagenet logs --follow ethereum-daemon-59989f76cf-jhsgw
+```
+
+It's "Looking for peers" a helluva lot.
+
+This is the command it's running:
+
+```
+geth \
+  --syncmode snap \
+  --cache 4096 \
+  --http \
+  --http.addr 0.0.0.0 \
+  --http.port 8545 \
+  --http.api eth,net,engine,web3,miner,personal,txpool,debug \
+  --http.corsdomain * \
+  --http.vhosts=* \
+  --authrpc.vhosts=localhost \
+  --authrpc.jwtsecret=/
+```
+
+```
+out version:     Geth/v1.10.26
+latest release:  Geth/v1.11.2
+```
+
+Perhaps that's causing some issues?
+
+```
+docker image pull ethereum/client-go
+```
+
+> a8f5f00a46114b25f4300ce31819455c6008bcaf8b4ffe247e17a98737b99a84
+
+```
+docker run --rm -it ethereum/client-go version
+```
+
+> `1.11.3-unstable`
+
+Side note: Getting this error for bitcoin:
+
+> Startup probe failed: error: Authorization failed: Incorrect rpcuser or rpcpassword
+
+Fixed with changes from `daemons` branch.
+
+### 04.03.2023 Saturday 2h
+
+Changing over to `master` on `node-launcher` as Itzamna pushed updates.
+
+Little bit of manual k8s encouragement was needed.  
+Kept getting `dialing failed ... i/o timeout` on thornode but a few restarts did the trick.  
+Well, it was more of a:
+- scale down to 0
+- delete vpc
+- scale up to 1
+- 🤞
+
+It's called `mayanode-stagenet` even though it will eventually not be stagenet,
+but there isn't an easy way to change that I feel comfortable with right now.
+Eth sync status being something I don't want to touch with the maya release
+date so close.
+
+### 06.03.2023 Monday 8h
+
+Unfortunately, the ethereum beacon didn't finish syncing over the weekend.  
+We're at `2821344/5941770`.
+
+```
+kubectl -n mayanode-stagenet exec --stdin --tty ethereum-daemon-59989f76cf-jhsgw -- sh
+geth attach
+eth.syncing
+eth.blockNumber
+
+kubectl -n mayanode-stagenet get pods
+kubectl -n mayanode-stagenet exec --stdin --tty bitcoin-daemon-89965f8cf-vmq64 -- bitcoin-cli getblockcount
+kubectl -n mayanode-stagenet exec --stdin --tty ethereum-daemon-59989f76cf-v55kx -- sh
+```
+
+- bitcoin: auth incorrect
+- bitcoin: block sync 100%
+- ethereum: beacon sync 47% (2826848/5941823)
+- mayanode: at block 4628
+- thornode: block sync 100%
+
+Auth issues returned, sent patch.
+
+```
+-             - -rpcauth=mayachain:d8fb9f4b5ac5e99dce5f3b4d89d12bea$86d80993816d355e118fde58e439716dd1e2e0a9b6973287858c7cac85896eb3
++             - -rpcauth=thorchain:d7e53bb9757b6d4fabf87775c7824b5c$7097e9cde30ef4319ed708fc559267679ae6cc0bf7e18fd49b283650c0c26a10
+```
+
+Everything is green now, which is quite nice.
+
+`make status` actually works for me now.
+
+Other people are having auth issues.
+
+Suggested this as a way to check what the `rpcauth` arg is:
+```
+kubectl -n mayanode-stagenet exec service/bitcoin-daemon -- cat /proc/1/cmdline
+```
+
+Have to use `cat /proc...` because `ps` hasn't been installed, or perhaps was
+deleted for security reasons.
+
+Went to the gym, came back, ETH, BTC and MAYA all down.
+
+> 0/2 nodes are available: 2 Insufficient cpu. preemption: 0/2 nodes are available: 2 No preemption victims found for incoming pod.
+
+Same error for all.  
+Shouldn't it auto-scale nodes??
+
+> Could not launch Spot Instances. UnfulfillableCapacity - Unable to fulfill capacity due to your request configuration. Please adjust your request and try again. Launching EC2 instance failed
+
+Now I have a volume node affinity conflict for eth and btc.  
+DAMN.
+
+What aws az is the eth pvc in?
+
+```
+kubectl get pvc -n mayanode-stagenet
+kubectl get pv
+kubectl describe pv pvc-3ab9f2e1-5c31-4bb1-8fde-ee8d3eaf3656
+```
+
+node affinity > required terms > term 0:  
+`us-east-2c`
+
+Okay what az is the new node in?
+
+```
+kubectl get nodes
+```
+
+```
+ip-10-0-20-32.us-east-2.compute.internal    Ready    <none>   156m    v1.24.10-eks-48e63af
+ip-10-0-43-114.us-east-2.compute.internal   Ready    <none>   3h50m   v1.24.10-eks-48e63af
+```
+
+`ProviderID:                   aws:///us-east-2a/i-0641a5b60580bc7bd`
+
+```
+kubectl describe node ip-10-0-20-32.us-east-2.compute.internal | grep us-east
+kubectl describe node ip-10-0-43-114.us-east-2.compute.internal | grep us-east
+```
+
+I'm attempting to fix this by creating a new node group in us-east-2c with a single node.  
+Hopefully the pods will be scheduled to it.
+
+Node group: mayanode-fix-eth-btc
+
+This happened because the cluster/node launcher stuff is configured to use aws "spot" ec2 instances which get disconnected when there's a lot of activity. They're cheaper but run the risk of being shut down at a moments notice. That's what happened to our setup.
+
+Might need:
+- This SG sg-031b502a1d5cb846e
+- This launch template lt-059d9566fbb11ae7b / mayanode-2023030322130453650000000e
+
+Bifrost is showing this:
+
+> {"level":"error","service":"bifrost","module":"thorchain_client","error":"failed to get node status: failed to get node status: failed to get node account: Status code: 404 Not Found returned","time":"2023-03-07T00:02:28Z","caller":"/app/bifrost/thorclient/thorchain.go:301","message":"observer is n
+
+
+### 08.03.2023 Monday 4h
+
+```
+NET=mainnet TYPE=validator make recycle
+```
+
+```
+10-0-59-79
+2.72 cpu
+us-east-2c
+```
+
+```
+10-0-59-81
+4 cpu
+```
+
+Bifrost failed to pull image now.
+
+```
+docker image pull registry.gitlab.com/mayachain/mayanode:stagenet-1.97.0
+docker image pull registry.gitlab.com/mayachain/mayanode:stagenet-1.98.0
+
+
+docker image pull registry.gitlab.com/mayachain/mayanode:4ed4c4de5
+docker run --rm -it registry.gitlab.com/mayachain/mayanode:4ed4c4de5 sh
+1.98.0
+
+docker image pull registry.gitlab.com/mayachain/thornode:stagenet-1.97.0
+docker image pull registry.gitlab.com/mayachain/thornode:stagenet-1.98.0
+
+docker image inspect registry.gitlab.com/mayachain/mayanode:4ed4c4de5
+
+4ed4c4de5
+d59b60e4a4b1ea6e7b391df75e6498a480a7b2bdf91afd803a3e58ef765321a5
+```
+
+Now it's:
+`docker image pull registry.gitlab.com/mayachain/mayanode:4ed4c4de5`
+
+`950286c04e4df7c96de493edec06262a9b2042c9ff5b8e7ef2532a95705498c1`
+
+### 09.03.2023 Thursday 4h
+
+WARNING: It might be a good idea to delete the lines which remove the secrets
+         before running `make recycle` otherwise the wallet will be recreated
+         with a different mnemonic.
+
+```
+NAME=mayanode-stagenet NET=stagenet TYPE=validator make recycle
+```
+
+```
+mnemonic="..."
+kubectl -n "mayanode-stagenet" create secret generic mayanode-mnemonic --from-literal=mnemonic="$mnemonic"
+kubectl -n "mayanode-stagenet" create secret generic thornode-mnemonic --from-literal=mnemonic="$mnemonic"
+```
+
+correct  
+`smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk`
+
+incorrect  
+`smaya16x0a20z73nn2gdrl2dryh038l2zk474h8aqewf`
+
+
+### 13.03.2023 Monday 14h
+
+```
+make debug
+find / -name '*genesis*'
+
+rm -rf /root/.mayanode/data/{*.db,snapshots}
+rm -rf /root/.mayanode/config/genesis.json
+```
+
+```
+NAME=mayanode-stagenet NET=stagenet TYPE=validator make recycle
+```
+
+```
+mayanode version
+mayanode keys list --keyring-backend file
+```
+
+```
+make shell
+mayanode tx mayachain deposit 100000000 cacao bond:smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk \
+  --from mayachain \
+  --keyring-backend file \
+  --chain-id mayachain-stagenet-v1
+  --yes \
+  --gas auto \
+  --node tcp://localhost:27147
+```
+
+> Database compacting, degraded performance
+
+Don't like the look of that!
+
+> Unable to process past deposit contract logs, perhaps your execution client is not fully synced" error="no contract code at given address" prefix=powchain
+
+Or that on beacon.
+
+> Attestation is too old to broadcast, discarding it. Current Slot: 5991919 , Attestation Slot: 5991885
+
+geth:
+
+> Checkpoint challenge timed out, dropping id=bdfa6602f579b499 conn=dyndial addr=34.202.193.18:30303  type=Geth/v1.11.1-stable/...
+
+```
+--datadir=/data/beacon2
+--checkpoint-sync-url=https://sync-mainnet.beaconcha.in
+--genesis-beacon-api-url=https://sync-mainnet.beaconcha.in
+```
+
+```
+make update
+NET=stagenet TYPE=validator NAME=mayanode-stagenet make recycle
+- When prompted to install choose n
+make pre-install
+
+kubectl -n mayanode-stagenet delete secrets mayanode-mnemonic
+kubectl -n mayanode-stagenet create secret generic mayanode-mnemonic --from-literal=mnemonic=""
+NET=stagenet TYPE=validator NAME=mayanode-stagenet make install
+```
+
+https://stagenet.mayanode.mayachain.info/mayachain/nodes
+
+I think `smaya1cqdy2xguhsnsx3j285qgd5sd50cyq70z43gtuv` is their node.
+It's the only one on the list right now.
+
+```
+kubectl config set-context –current –namespace=mayanode-stagenet
+```
+
+```
+rm -rf /root/.mayanode/data/*.db
+rm -rf /root/.mayanode/data/snapshots
+rm -rf /root/.mayanode/data/cs.wal
+rm -rf /root/.mayanode/config/genesis.json
+
+vi /root/.mayanode/config/addrbook.json
+cat /root/.mayanode/config/addrbook.json | jq '.addrs = []' > /root/.mayanode/config/addrbook.json
+
+vi ~/.mayanode/config/config.toml
+```
+
+```
+kubectl logs -f service/mayanode
+```
+
+`{"height":"0","txhash":"BBA6054D78501E25F7775684400E57B7C7A9FB029C56BEBE00E50C18BE4C8A14","codespace":"sdk","code":4,"data":"","raw_log":"signature verification failed; please verify account number (4) and chain-id (mayachain-stagenet-v1): unauthorized","logs":[],"info":"","gas_wanted":"176907","gas_used":"38500","tx":null,"timestamp":"","events":[]}`
+
+
+```
+make shell
+
+mayanode tx mayachain deposit 100000000 cacao bond:smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk \
+  --from mayachain \
+  --keyring-backend file \
+  --chain-id mayachain-mainnet-v1 \
+  --yes \
+  --gas auto \
+  --node tcp://localhost:27147
+
+mayanode tx mayachain deposit 100000000 cacao bond:smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk \
+  --from mayachain \
+  --keyring-backend file \
+  --chain-id mayachain-stagenet-v1 \
+  --yes \
+  --gas auto \
+  --node tcp://localhost:27147
+```
+
+```
+{"height":"3367","txhash":"9587D4B592104FB7FDAE54DFE0F48FD1A07D92083D4CB89082D5DE16D24DAD30","codespace":"","code":0,"data":"0A130A112F74797065732E4D73674465706F736974","raw_log":"[{\"events\":[{\"type\":\"bond\",\"attributes\":[{\"key\":\"amount\",\"value\":\"0\"},{\"key\":\"bond_type\",\"value\":\"\\u0000\"},{\"key\":\"id\",\"value\":\"9587D4B592104FB7FDAE54DFE0F48FD1A07D92083D4CB89082D5DE16D24DAD30\"},{\"key\":\"chain\",\"value\":\"MAYA\"},{\"key\":\"from\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"to\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"},{\"key\":\"coin\",\"value\":\"100000000 MAYA.CACAO\"},{\"key\":\"memo\",\"value\":\"bond:smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"}]},{\"type\":\"coin_received\",\"attributes\":[{\"key\":\"receiver\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"receiver\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"},{\"key\":\"amount\",\"value\":\"100000000cacao\"}]},{\"type\":\"coin_spent\",\"attributes\":[{\"key\":\"spender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"spender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"100000000cacao\"}]},{\"type\":\"message\",\"attributes\":[{\"key\":\"action\",\"value\":\"deposit\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"}]},{\"type\":\"new_node\",\"attributes\":[{\"key\":\"address\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"}]},{\"type\":\"transfer\",\"attributes\":[{\"key\":\"recipient\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"recipient\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"100000000cacao\"}]}]}]","logs":[{"msg_index":0,"log":"","events":[{"type":"bond","attributes":[{"key":"amount","value":"0"},{"key":"bond_type","value":"\u0000"},{"key":"id","value":"9587D4B592104FB7FDAE54DFE0F48FD1A07D92083D4CB89082D5DE16D24DAD30"},{"key":"chain","value":"MAYA"},{"key":"from","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"to","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"},{"key":"coin","value":"100000000 MAYA.CACAO"},{"key":"memo","value":"bond:smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"}]},{"type":"coin_received","attributes":[{"key":"receiver","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"amount","value":"2000000cacao"},{"key":"receiver","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"},{"key":"amount","value":"100000000cacao"}]},{"type":"coin_spent","attributes":[{"key":"spender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"},{"key":"spender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"100000000cacao"}]},{"type":"message","attributes":[{"key":"action","value":"deposit"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"}]},{"type":"new_node","attributes":[{"key":"address","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"}]},{"type":"transfer","attributes":[{"key":"recipient","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"},{"key":"recipient","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"100000000cacao"}]}]}],"info":"","gas_wanted":"176907","gas_used":"175172","tx":null,"timestamp":"","events":[{"type":"tx","attributes":[{"key":"ZmVl","value":"","index":true},{"key":"ZmVlX3BheWVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"tx","attributes":[{"key":"YWNjX3NlcQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGsvMA==","index":true}]},{"type":"tx","attributes":[{"key":"c2lnbmF0dXJl","value":"NEdwUmVMdVBPZEFlU28yQzJPSnBMRUlqcFI0ZzBvUktNbkFnbU5wcGkzTUZRTGhhcGtQc1ZiQjNQSXVxT0R6SGpNeGUxb3hOWmVzTDNBWkVmNVVGN2c9PQ==","index":true}]},{"type":"message","attributes":[{"key":"YWN0aW9u","value":"ZGVwb3NpdA==","index":true}]},{"type":"coin_spent","attributes":[{"key":"c3BlbmRlcg==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"coin_received","attributes":[{"key":"cmVjZWl2ZXI=","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"transfer","attributes":[{"key":"cmVjaXBpZW50","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"message","attributes":[{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"coin_spent","attributes":[{"key":"c3BlbmRlcg==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MTAwMDAwMDAwY2FjYW8=","index":true}]},{"type":"coin_received","attributes":[{"key":"cmVjZWl2ZXI=","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true},{"key":"YW1vdW50","value":"MTAwMDAwMDAwY2FjYW8=","index":true}]},{"type":"transfer","attributes":[{"key":"cmVjaXBpZW50","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true},{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MTAwMDAwMDAwY2FjYW8=","index":true}]},{"type":"message","attributes":[{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"new_node","attributes":[{"key":"YWRkcmVzcw==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"bond","attributes":[{"key":"YW1vdW50","value":"MA==","index":true},{"key":"Ym9uZF90eXBl","value":"AA==","index":true},{"key":"aWQ=","value":"OTU4N0Q0QjU5MjEwNEZCN0ZEQUU1NERGRTBGNDhGRDFBMDdEOTIwODNENENCODkwODJENURFMTZEMjREQUQzMA==","index":true},{"key":"Y2hhaW4=","value":"TUFZQQ==","index":true},{"key":"ZnJvbQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"dG8=","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true},{"key":"Y29pbg==","value":"MTAwMDAwMDAwIE1BWUEuQ0FDQU8=","index":true},{"key":"bWVtbw==","value":"Ym9uZDpzbWF5YTFndjg1djBqdmMwcnNqdW5rdTNxeGVtcGF4Nmttcmc1ajV3bTZkaw==","index":true}]}]}
+```
+
+18.191.59.213
+
+```
+make set-ip-address
+```
+
+`{"height":"3395","txhash":"F4A986FCA5E00DED3F4ACAFA56906555B2CAD99DFAEA38D9240180B81F190332","codespace":"","code":0,"data":"0A180A162F74797065732E4D7367536574495041646472657373","raw_log":"[{\"events\":[{\"type\":\"bond\",\"attributes\":[{\"key\":\"amount\",\"value\":\"2000000\"},{\"key\":\"bond_type\",\"value\":\"\\u0003\"},{\"key\":\"id\",\"value\":\"0000000000000000000000000000000000000000000000000000000000000000\"},{\"key\":\"chain\"},{\"key\":\"from\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"to\"},{\"key\":\"coin\"},{\"key\":\"memo\"}]},{\"type\":\"coin_received\",\"attributes\":[{\"key\":\"receiver\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]},{\"type\":\"coin_spent\",\"attributes\":[{\"key\":\"spender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]},{\"type\":\"message\",\"attributes\":[{\"key\":\"action\",\"value\":\"set_ip_address\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"}]},{\"type\":\"set_ip_address\",\"attributes\":[{\"key\":\"maya_address\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"address\",\"value\":\"3.136.127.159\"}]},{\"type\":\"transfer\",\"attributes\":[{\"key\":\"recipient\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]}]}]","logs":[{"msg_index":0,"log":"","events":[{"type":"bond","attributes":[{"key":"amount","value":"2000000"},{"key":"bond_type","value":"\u0003"},{"key":"id","value":"0000000000000000000000000000000000000000000000000000000000000000"},{"key":"chain","value":""},{"key":"from","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"to","value":""},{"key":"coin","value":""},{"key":"memo","value":""}]},{"type":"coin_received","attributes":[{"key":"receiver","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"amount","value":"2000000cacao"}]},{"type":"coin_spent","attributes":[{"key":"spender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"}]},{"type":"message","attributes":[{"key":"action","value":"set_ip_address"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"}]},{"type":"set_ip_address","attributes":[{"key":"maya_address","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"address","value":"3.136.127.159"}]},{"type":"transfer","attributes":[{"key":"recipient","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"}]}]}],"info":"","gas_wanted":"141458","gas_used":"68772","tx":null,"timestamp":"","events":[{"type":"tx","attributes":[{"key":"ZmVl","value":"","index":true},{"key":"ZmVlX3BheWVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"tx","attributes":[{"key":"YWNjX3NlcQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGsvMQ==","index":true}]},{"type":"tx","attributes":[{"key":"c2lnbmF0dXJl","value":"amJBWlFTaDRjNEtpbDFNSldCdloxRmFIbElZdHAxcWlhdTBxZUJRWi8wOVgzb0lJcnZxa3diMXRYekdPUDIrSzJSTkRZOUlLeXBtc09odVVpUkp0dGc9PQ==","index":true}]},{"type":"message","attributes":[{"key":"YWN0aW9u","value":"c2V0X2lwX2FkZHJlc3M=","index":true}]},{"type":"coin_spent","attributes":[{"key":"c3BlbmRlcg==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"coin_received","attributes":[{"key":"cmVjZWl2ZXI=","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"transfer","attributes":[{"key":"cmVjaXBpZW50","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"message","attributes":[{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"bond","attributes":[{"key":"YW1vdW50","value":"MjAwMDAwMA==","index":true},{"key":"Ym9uZF90eXBl","value":"Aw==","index":true},{"key":"aWQ=","value":"MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==","index":true},{"key":"Y2hhaW4=","value":"","index":true},{"key":"ZnJvbQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"dG8=","value":"","index":true},{"key":"Y29pbg==","value":"","index":true},{"key":"bWVtbw==","value":"","index":true}]},{"type":"set_ip_address","attributes":[{"key":"bWF5YV9hZGRyZXNz","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YWRkcmVzcw==","value":"My4xMzYuMTI3LjE1OQ==","index":true}]}]}`
+
+```
+make set-version
+```
+
+```
+make set-node-keys
+```
+
+`{"height":"3424","txhash":"DFC1391B9E91ECF6049D77EACE534597B6A3C18CBCB6A4E78ECBC4F9BF5D7668","codespace":"","code":0,"data":"0A170A152F74797065732E4D73675365744E6F64654B657973","raw_log":"[{\"events\":[{\"type\":\"bond\",\"attributes\":[{\"key\":\"amount\",\"value\":\"2000000\"},{\"key\":\"bond_type\",\"value\":\"\\u0003\"},{\"key\":\"id\",\"value\":\"0000000000000000000000000000000000000000000000000000000000000000\"},{\"key\":\"chain\"},{\"key\":\"from\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"to\"},{\"key\":\"coin\"},{\"key\":\"memo\"}]},{\"type\":\"coin_received\",\"attributes\":[{\"key\":\"receiver\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"receiver\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]},{\"type\":\"coin_spent\",\"attributes\":[{\"key\":\"spender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"spender\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]},{\"type\":\"message\",\"attributes\":[{\"key\":\"action\",\"value\":\"set_node_keys\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"sender\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"}]},{\"type\":\"set_node_keys\",\"attributes\":[{\"key\":\"node_address\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"node_secp256k1_pubkey\",\"value\":\"smayapub1addwnpepqw4upnvtujukvayxvlg37tsgsmu9ya2ahpl2p7q8azn2mzmfsq3tvafhjsl\"},{\"key\":\"node_ed25519_pubkey\",\"value\":\"smayapub1zcjduepq4sw24y0rppsazs5kjzyu8wujyewgn96xpft7xfm4n8whwqgarj3s92lu4m\"},{\"key\":\"validator_consensus_pub_key\",\"value\":\"smayacpub1zcjduepqq48s6pue3v4yd9c3a0rdtpc5j2d052wzc3lcs9c5qksrdwqyw5qspuykcu\"}]},{\"type\":\"transfer\",\"attributes\":[{\"key\":\"recipient\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"sender\",\"value\":\"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"},{\"key\":\"recipient\",\"value\":\"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9\"},{\"key\":\"sender\",\"value\":\"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz\"},{\"key\":\"amount\",\"value\":\"2000000cacao\"}]}]}]","logs":[{"msg_index":0,"log":"","events":[{"type":"bond","attributes":[{"key":"amount","value":"2000000"},{"key":"bond_type","value":"\u0003"},{"key":"id","value":"0000000000000000000000000000000000000000000000000000000000000000"},{"key":"chain","value":""},{"key":"from","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"to","value":""},{"key":"coin","value":""},{"key":"memo","value":""}]},{"type":"coin_received","attributes":[{"key":"receiver","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"amount","value":"2000000cacao"},{"key":"receiver","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"amount","value":"2000000cacao"}]},{"type":"coin_spent","attributes":[{"key":"spender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"},{"key":"spender","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"},{"key":"amount","value":"2000000cacao"}]},{"type":"message","attributes":[{"key":"action","value":"set_node_keys"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"sender","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"}]},{"type":"set_node_keys","attributes":[{"key":"node_address","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"node_secp256k1_pubkey","value":"smayapub1addwnpepqw4upnvtujukvayxvlg37tsgsmu9ya2ahpl2p7q8azn2mzmfsq3tvafhjsl"},{"key":"node_ed25519_pubkey","value":"smayapub1zcjduepq4sw24y0rppsazs5kjzyu8wujyewgn96xpft7xfm4n8whwqgarj3s92lu4m"},{"key":"validator_consensus_pub_key","value":"smayacpub1zcjduepqq48s6pue3v4yd9c3a0rdtpc5j2d052wzc3lcs9c5qksrdwqyw5qspuykcu"}]},{"type":"transfer","attributes":[{"key":"recipient","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"sender","value":"smaya1gv85v0jvc0rsjunku3qxempax6kmrg5j5wm6dk"},{"key":"amount","value":"2000000cacao"},{"key":"recipient","value":"smaya1dheycdevq39qlkxs2a6wuuzyn4aqxhvepwy3x9"},{"key":"sender","value":"smaya17gw75axcnr8747pkanye45pnrwk7p9c3vw3zsz"},{"key":"amount","value":"2000000cacao"}]}]}],"info":"","gas_wanted":"194980","gas_used":"95533","tx":null,"timestamp":"","events":[{"type":"tx","attributes":[{"key":"ZmVl","value":"","index":true},{"key":"ZmVlX3BheWVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"tx","attributes":[{"key":"YWNjX3NlcQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGsvMw==","index":true}]},{"type":"tx","attributes":[{"key":"c2lnbmF0dXJl","value":"Z3JqbnIxQ3g2dkErODBHaTdlYmdjc2dFWkVQeUNVYUxzeldUYkZFNS90RkIwSVV3aU44SEdLOXd1TU9vNjMvaFVsR1didnRmOXpRWGJtLzI2engvd1E9PQ==","index":true}]},{"type":"message","attributes":[{"key":"YWN0aW9u","value":"c2V0X25vZGVfa2V5cw==","index":true}]},{"type":"coin_spent","attributes":[{"key":"c3BlbmRlcg==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"coin_received","attributes":[{"key":"cmVjZWl2ZXI=","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"transfer","attributes":[{"key":"cmVjaXBpZW50","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"message","attributes":[{"key":"c2VuZGVy","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true}]},{"type":"coin_spent","attributes":[{"key":"c3BlbmRlcg==","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"coin_received","attributes":[{"key":"cmVjZWl2ZXI=","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"transfer","attributes":[{"key":"cmVjaXBpZW50","value":"c21heWExZGhleWNkZXZxMzlxbGt4czJhNnd1dXp5bjRhcXhodmVwd3kzeDk=","index":true},{"key":"c2VuZGVy","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true},{"key":"YW1vdW50","value":"MjAwMDAwMGNhY2Fv","index":true}]},{"type":"message","attributes":[{"key":"c2VuZGVy","value":"c21heWExN2d3NzVheGNucjg3NDdwa2FueWU0NXBucndrN3A5YzN2dzN6c3o=","index":true}]},{"type":"bond","attributes":[{"key":"YW1vdW50","value":"MjAwMDAwMA==","index":true},{"key":"Ym9uZF90eXBl","value":"Aw==","index":true},{"key":"aWQ=","value":"MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==","index":true},{"key":"Y2hhaW4=","value":"","index":true},{"key":"ZnJvbQ==","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"dG8=","value":"","index":true},{"key":"Y29pbg==","value":"","index":true},{"key":"bWVtbw==","value":"","index":true}]},{"type":"set_node_keys","attributes":[{"key":"bm9kZV9hZGRyZXNz","value":"c21heWExZ3Y4NXYwanZjMHJzanVua3UzcXhlbXBheDZrbXJnNWo1d202ZGs=","index":true},{"key":"bm9kZV9zZWNwMjU2azFfcHVia2V5","value":"c21heWFwdWIxYWRkd25wZXBxdzR1cG52dHVqdWt2YXl4dmxnMzd0c2dzbXU5eWEyYWhwbDJwN3E4YXpuMm16bWZzcTN0dmFmaGpzbA==","index":true},{"key":"bm9kZV9lZDI1NTE5X3B1YmtleQ==","value":"c21heWFwdWIxemNqZHVlcHE0c3cyNHkwcnBwc2F6czVranp5dTh3dWp5ZXdnbjk2eHBmdDd4Zm00bjh3aHdxZ2FyajNzOTJsdTRt","index":true},{"key":"dmFsaWRhdG9yX2NvbnNlbnN1c19wdWJfa2V5","value":"c21heWFjcHViMXpjamR1ZXBxcTQ4czZwdWUzdjR5ZDljM2EwcmR0cGM1ajJkMDUyd3pjM2xjczljNXFrc3Jkd3F5dzVxc3B1eWtjdQ==","index":true}]}]}`
+
+```
+NET=stagenet NAME=mayanode-stagenet TYPE=validator make status
+```
+
+We can ignore peer `123bb6e4f77c16a50aa94a745ffc0c6b989a89ab`
+
+Crazy long day, but we're looking good. Just midgard that isn't playing ball.
+
+### 14.03.2023 Tuesday 4h
+
+Today, we prep for recycling into mainnet.
+
+```
+make update
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make recycle
+
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make shell
+
+mayanode tx mayachain deposit 100000000 cacao bond:maya1gv85v0jvc0rsjunku3qxempax6kmrg5jqh8vmg \
+  --from mayachain \
+  --keyring-backend file \
+  --chain-id mayachain-mainnet-v1 \
+  --yes \
+  --gas auto \
+  --node tcp://localhost:27147
+
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make status
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make logs
+
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make debug
+rm -rf ~/.mayanode
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make reset
+```
+
+```
+Error: RPC error -32603 - Internal error: timed out waiting for tx to be included in a block
+```
+
+```
+Error: rpc error: code = Unknown desc = rpc error: code = Unknown desc = account sequence mismatch, expected 1, got 0: incorrect account sequence [cosmos/cosmos-sdk@v0.45.9/x/auth/ante/sigverify.go:265] With gas wanted: '0' and gas used: '33578' : unknown request
+```
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-ip-address
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-version
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-node-keys
+```
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make reset
+```
+
+We're running live!!
+
+
+https://www.explorer.mayachain.info/nodes/
+
