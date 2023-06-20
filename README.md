@@ -2654,3 +2654,27 @@ We're running live!!
 
 https://www.explorer.mayachain.info/nodes/
 
+
+### 18.03.2023 Saturday
+
+```
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make update
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make backup
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make status
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make set-ip
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make set-version
+```
+
+### 21.03.2023 Tuesday
+
+12:10 start
+
+```
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make update
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make set-version
+
+NET=mainnet TYPE=validator NAME=mayanode-stagenet make status
+```
+
+Spammed with:
+> Skipping the migration of funds while transactions are still pending
