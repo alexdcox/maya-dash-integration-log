@@ -2655,7 +2655,28 @@ We're running live!!
 https://www.explorer.mayachain.info/nodes/
 
 
-### 18.03.2023 Saturday
+## Batch Three
+
+```
+18.03.2023 Saturday  20m
+21.03.2023 Tuesday   20m
+27.03.2023 Monday    10m
+06.04.2023 Thursday       2h
+07.04.2023 Friday         6h
+12.04.2023 Wednesday      1h
+14.04.2023 Friday         1h
+15.04.2023 Saturday       1h
+17.04.2023 Monday         1h
+18.04.2023 Tuesday        1h
+09.06.2023 Friday         6h
+12.06.2023 Monday         4h
+13.06.2023 Tuesday        5h
+14.06.2023 Wednesday     10h
+23.06.2023 Friday         3h
+Total                50m 41h
+```
+
+### 18.03.2023 Saturday 20m
 
 ```
 NET=mainnet TYPE=validator NAME=mayanode-stagenet make update
@@ -2665,9 +2686,7 @@ NET=mainnet TYPE=validator NAME=mayanode-stagenet make set-ip
 NET=mainnet TYPE=validator NAME=mayanode-stagenet make set-version
 ```
 
-### 21.03.2023 Tuesday
-
-12:10 start
+### 21.03.2023 Tuesday 20m
 
 ```
 NET=mainnet TYPE=validator NAME=mayanode-stagenet make update
@@ -2678,3 +2697,1604 @@ NET=mainnet TYPE=validator NAME=mayanode-stagenet make status
 
 Spammed with:
 > Skipping the migration of funds while transactions are still pending
+
+Logs looking good otherwise.
+
+### 27.03.2023 Monday 10m
+
+`NET=mainnet TYPE=validator NAME=mayanode-stagenet make update`
+
+### 06.04.2023 Thursday 2h
+
+Itsamna asked me to open the same MR against Maya.
+
+```
+git clone git@gitlab.com:mayachain/mayanode.git
+cd mayanode
+git remote add alex-thornode git@gitlab.com:alexdcox/thornode.git
+git checkout v1.96.1
+git checkout -b add-dash-chain
+git merge alex-thornode/982-add-dash-chain
+
+git diff c279c48b9..bdbcd65a7
+```
+
+That resulted in way too many changes.
+
+```
+gco v1.96.1
+git reset --hard HEAD
+gb -D add-dash-chain
+gco -b add-dash-chain
+```
+
+```
+git merge alex-thornode/982-add-dash-chain --no-commit
+```
+
+Nope. Did a fast-forward.
+
+```
+git merge alex-thornode/982-add-dash-chain --no-ff --no-commit
+```
+
+Okay that's what I wanted, staged changes without a commit.
+Now to whittle this down to just what we actually want.
+Here's the entire file list:
+
+Perhaps this isn't the easiest way to do this.
+
+Options:
+- cherry pick the dash related commits
+- get the patch of thorchain -> dash and see if that can be cleanly applied to maya
+- do what I'm already doing and just work through it
+
+```
+git merge -s recursive -X ours alex-thornode/982-add-dash-chain --no-ff --no-commit
+```
+
+Still a bit brutal.
+May as well try the patch approach, that'll have to wait until tomorrow.
+
+
+### 07.04.2023 Friday 6h
+
+Right trying to get the cleanest patch I can from thornode, to then apply to maya
+in a separate branch...
+
+Most recent tag on my thornode/dash branch is `v1.101.0`
+
+```
+gd v1.101.0..982-add-dash-chain > add-dash.patch
+```
+
+`build/scripts/node-status.sh`
+quite heavily modified
+
+`thornode/cmd/genaccounts.go`
+didn't copy accross this last line fix:
+```
+  cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
+  cmd.Flags().String(flagVestingAmt, "", "amount of coins for vesting accounts")
+  cmd.Flags().Int64(flagVestingStart, 0, "schedule start time (unix epoch) for vesting accounts")
+  cmd.Flags().Int64(flagVestingEnd, 0, "schedule end time (unix epoch) for vesting accounts")
+>>>  cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
+```
+
+`common/chain.go`
+Needs manual review
+
+`config/config.go`
+Didn't apply this fix
+```
+assert(viper.BindEnv(
+  "bifrost.chains.dash.block_scanner.block_height_discover_back_off",
+  "BLOCK_SCANNER_BACKOFF",
+))
+```
+
+`pubkey2address/pubkey2address.go`
+Didn't add the last line of each of these:
+```
+  case common.TestNet, common.MockNet:
+    fmt.Println("THORChain testnet|mocknet:")
+```
+```
+  default:
+    fmt.Printf("No thorchain bech32 prefixes are configured for chain: '%v'\n", nw)
+```
+
+`mayanode/Makefile`
+added the volume mount, how are people making this work without that!??
+
+Right that's looking very nice and clean.
+Apart from the eye watering amount of package errors.
+
+Tidying module.
+Oh, we have to specify the version.
+
+```
+go mod tidy -compat=1.17
+```
+
+Running unit tests.
+
+Ah dash bifrost client is relying on some refactored methods that aren't
+currently present in maya.
+
+Let Itzamna know the MR is up. Still in draft atm though.
+
+Now I need to update the smoke tests.
+
+Rebuild image failed on my vm.
+
+`builder-v2` is no longer available.
+Use `registry.gitlab.com/thorchain/thornode:builder-v3`.
+
+Had to install `protoc-gen-gocosmos` and add `/root/go/bin` to `PATH`.
+
+```
+go install protoc-gen-gocosmos
+```
+
+My `mayanode:add-dash-chain` has a `build/docker/docker-compose` with older node
+versions than build by `./ci/images/build.sh` in `node-launcher:add-dash`.
+
+Need to update these.
+
+```
+gaia-daemon-8.0.1
+bitcoin-daemon-24.0.1
+bitcoin-cash-daemon-26.0.0
+dogecoin-daemon-1.14.6
+dash-daemon-latest
+avalanche-daemon-1.9.9
+litecoin-daemon-0.21.2.2
+```
+
+Oh also, we're pulling from `thornode` not `mayachain`.
+Noticed they've just put `latest` for dash, that does match my Dockerfile tbf.
+
+`litecoin` didn't work.
+
+I split all the `RUN` commands into their own lines to help debug, and it worked.
+I'm going to pretend it worked the first time round 🙈
+
+That failed like a spacex prototype. Explosively, impressively.
+Failed to connect.
+Looks like ethereum is having troubles:
+
+```
+WARN [04-08|04:29:52.066] Failed to load snapshot, regenerating    err="missing or corrupted snapshot"
+WARN [04-08|04:29:52.067] Error reading unclean shutdown markers   error="leveldb: not found"
+WARN [04-08|04:29:52.067] Engine API enabled                       protocol=eth
+WARN [04-08|04:29:52.067] Engine API started but chain not configured for merge yet
+WARN [04-08|04:29:52.067] P2P server will be useless, neither dialing nor listening
+```
+
+Maybe that's not an issue, they are just warnings.
+
+Might have to try again with even more cpu/mem.
+Yeah that was the issue. 14 cpu / 25 gb ram.
+
+Got error: `CONSENSUS FAILURE`
+
+Oh.
+
+```
+5:04AM ERR go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:726 > CONSENSUS FAILURE!!! err="runtime error: invalid memory address or nil pointer dereference" module=consensus stack="goroutine 139 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x65\ngithub.com/tendermint/tendermint/consensus.(*State).receiveRoutine.func2()\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:726 +0x4c\npanic({0x1d210a0, 0x34d6b10})\n\t/usr/local/go/src/runtime/panic.go:838 +0x207\ngitlab.com/thorchain/thornode/x/thorchain.AppModule.BeginBlock({{}, _, {{_, _}, {_, _}, {_, _}}, _}, {{0x2614350, ...}, ...}, ...)\n\t/app/x/thorchain/module.go:205 +0xc68\ngithub.com/cosmos/cosmos-sdk/types/module.(*Manager).BeginBlock(_, {{0x2614350, 0xc000052080}, {0x26219c0, 0xc00014b0c0}, {{0xb, 0x0}, {0xc000f08c70, 0x9}, 0x1, ...}, ...}, ...)\n\t/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/types/module/module.go:479 +0x3a2\ngitlab.com/thorchain/thornode/app.(*THORChainApp).BeginBlocker(_, {{0x2614350, 0xc000052080}, {0x26219c0, 0xc00014b0c0}, {{0xb, 0x0}, {0xc000f08c70, 0x9}, 0x1, ...}, ...}, ...)\n\t/app/app/app.go:306 +0x85\ngithub.com/cosmos/cosmos-sdk/baseapp.(*BaseApp).BeginBlock(_, {{0xc0012e4d40, 0x20, 0x20}, {{0xb, 0x0}, {0xc000f08c70, 0x9}, 0x1, {0x2f810e10, ...}, ...}, ...})\n\t/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/baseapp/abci.go:194 +0x97c\ngithub.com/tendermint/tendermint/abci/client.(*localClient).BeginBlockSync(_, {{0xc0012e4d40, 0x20, 0x20}, {{0xb, 0x0}, {0xc000f08c70, 0x9}, 0x1, {0x2f810e10, ...}, ...}, ...})\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/abci/client/local_client.go:280 +0x118\ngithub.com/tendermint/tendermint/proxy.(*appConnConsensus).BeginBlockSync(_, {{0xc0012e4d40, 0x20, 0x20}, {{0xb, 0x0}, {0xc000f08c70, 0x9}, 0x1, {0x2f810e10, ...}, ...}, ...})\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/proxy/app_conn.go:81 +0x55\ngithub.com/tendermint/tendermint/state.execBlockOnProxyApp({0x2615ab8?, 0xc000ed4180}, {0x261afb8, 0xc0017fb490}, 0xc0011e61e0, {0x261ff48, 0xc0017fa760}, 0x0?)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/state/execution.go:307 +0x3dd\ngithub.com/tendermint/tendermint/state.(*BlockExecutor).ApplyBlock(_, {{{0xb, 0x0}, {0xc00063eb30, 0x7}}, {0xc00063eb37, 0x9}, 0x1, 0x0, {{0x0, ...}, ...}, ...}, ...)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/state/execution.go:140 +0x171\ngithub.com/tendermint/tendermint/consensus.(*State).finalizeCommit(0xc00142ae00, 0x1)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:1635 +0x9fd\ngithub.com/tendermint/tendermint/consensus.(*State).tryFinalizeCommit(0xc00142ae00, 0x1)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:1546 +0x305\ngithub.com/tendermint/tendermint/consensus.(*State).enterCommit.func1()\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:1481 +0x87\ngithub.com/tendermint/tendermint/consensus.(*State).enterCommit(0xc00142ae00, 0x1, 0x0)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:1519 +0xbea\ngithub.com/tendermint/tendermint/consensus.(*State).addVote(0xc00142ae00, 0xc001402000, {0x0, 0x0})\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:2132 +0xb7c\ngithub.com/tendermint/tendermint/consensus.(*State).tryAddVote(0xc00142ae00, 0xc001402000, {0x0?, 0x475446?})\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:1930 +0x2c\ngithub.com/tendermint/tendermint/consensus.(*State).handleMsg(0xc00142ae00, {{0x25fb300?, 0xc000594140?}, {0x0?, 0x0?}})\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:838 +0x3ff\ngithub.com/tendermint/tendermint/consensus.(*State).receiveRoutine(0xc00142ae00, 0x0)\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:782 +0x512\ncreated by github.com/tendermint/tendermint/consensus.(*State).OnStart\n\t/go/pkg/mod/github.com/tendermint/tendermint@v0.34.14/consensus/state.go:378 +0x11c\n"
+```
+
+Doesn't match up to my codebase.
+Also I fucked with the constants:
+`gitlab.com/mayachain/mayanode/constants.Version=1.96.1`
+The might need to back to `thorchain/thornode`...
+
+Think the gasmanager is nil.
+`5:11AM ERR app/x/thorchain/module.go:184 > fail to get managers error="fail to create gas manager: bad version"`
+Confirmed.
+
+Low disk space. Damn.
+
+> ModuleNotFoundError: No module named 'dashtx'
+
+Perhaps it's not using the right `smoke` image.
+A tomorrow problem.
+
+
+### 12.04.2023 Wednesday 1h
+
+They asked me to push an update.
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make update
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-version
+```
+
+### 14.04.2023 Friday 1h
+
+```
+kubectl patch pvc thornode -p '{"metadata":{"finalizers":null}}'
+```
+
+He asked me to set recover: true for thornode and make reset.
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make reset
+```
+
+### 15.04.2023 Saturday 1h
+
+Asked to toggle recover off and update...
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make status
+
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make update
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-version
+```
+
+### 17.04.2023 Monday 1h
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make status
+
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make update
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-version
+```
+
+```
+kubectl -n mayanode-stagenet logs deployment/mayanode
+```
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make shell
+ping 13.52.55.197
+ping 18.194.46.101
+ping 18.221.183.211
+ping 15.156.45.237
+ping 18.217.85.10
+ping 3.132.55.140
+```
+
+
+### 18.04.2023 Tuesday 1h
+
+```
+kubectl scale --replicas=0 deploy/mayanode --timeout=5m
+```
+
+```
+{
+  "address": "maya1gv85v0jvc0rsjunku3qxempax6kmrg5jqh8vmg",
+  "addr": []
+}
+```
+
+"key": "ae1713e45cb5c579fc07b7f0ff24adad1ea93aa1",
+
+```
+kubectl get configmap gateway-external-ip -o jsonpath="{.data.externalIP}"
+```
+
+18.221.183.211
+ae1713e45cb5c579fc07b7f0ff24adad1ea93aa1
+
+```
+{
+  "key": "",
+  "addr": []
+}
+```
+
+```
+/root/.mayanode/config/addrbook.json
+```
+
+```
+kubectl -n mayanode-stagenet logs deployment/mayanode > mayanode-1804231318.log
+```
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make shell
+```
+
+> arn:aws:eks:us-east-2:506926791942:cluster/dash-maya
+
+```
+kubectl config current-context
+
+aws eks describe-cluster --name dash-maya
+aws sts get-caller-identity
+
+aws eks update-kubeconfig --region us-east-2 --name dash-maya
+```
+
+`NET=mainnet NAME=mayanode-stagenet TYPE=validator make status`
+
+### 09.06.2023 Friday 6h
+
+Back from holiday. They're adding the dash client in now live.
+
+> Just to update you on the progress we've made for the Dash client in Maya, I
+  created a new PR with a new branch that takes your changes and we applied
+  some fixes and updates. We're still missing some fixes for smokes to work,
+  but I think we're close
+
+
+Okay what's the branch? `origin/add-dash-chain`
+
+They said they're using delve to debug things.
+https://github.com/go-delve/delve
+
+My work vm no longer has mayanode or docker or anything we need to run the smoke
+tests. Think I wiped and reinstalled after an emergency issue before I went on
+holiday so Ash had a clean healthy box to work with. This of course, destroyed
+my dev environment.
+
+```
+go install protoc-gen-gocosmos
+
+apt install plocate
+locate protoc-gen-gocosmos
+```
+
+```
+/root/go/bin/protoc-gen-gocosmos
+/root/go/pkg/mod/github.com/regen-network/cosmos-proto@v0.3.1/protoc-gen-gocosmos
+/root/go/pkg/mod/github.com/regen-network/cosmos-proto@v0.3.1/protoc-gen-gocosmos/main.go
+```
+
+```
+go install github.com/regen-network/cosmos-proto/protoc-gen-gocosmos
+export PATH="/root/go/bin:$PATH"
+```
+
+Running the smoke tests:
+```
+DOCKER_BUILDKIT=0 make smoke
+```
+
+Gives me this error:
+> unknown flag: --cache-from
+
+Okay managed to get to the same place they are at with this error
+Happens around smoke test `73`
+
+```
+11:07PM INF app/bifrost/signer/sign.go:229 > Signing transaction height=109 module=signer num=0 service=bifrost status=1 tx={"aggregator":"","chain":"DASH","coins":[{"amount":"2469349588","asset":"DASH.DASH"}],"gas_rate":510,"in_hash":"2ACAB022982A1EBB9DF1777F7FC0B4B6D67A65AFB85E1B045CCE2FB057B00A61","max_gas":[{"amount":"155040","asset":"DASH.DASH","decimals":8}],"memo":"OUT:2ACAB022982A1EBB9DF1777F7FC0B4B6D67A65AFB85E1B045CCE2FB057B00A61","out_hash":"","to":"yLLFQTxaW3wybbahkhyZcrdfqoRCnfzAV5","vault_pubkey":"tmayapub1addwnpepqtt62k7egujtc8dnxgxfwg3jvfr6380rdvqdu5atk2vry3h6t4u0kn307ka"}
+11:07PM INF app/bifrost/signer/sign.go:489 > retrying broadcast of already signed tx memo=OUT:2ACAB022982A1EBB9DF1777F7FC0B4B6D67A65AFB85E1B045CCE2FB057B00A61 module=signer service=bifrost
+11:07PM ERR app/bifrost/signer/sign.go:508 > fail to broadcast tx to chain error="fail to broadcast transaction to chain: -3: Amount is not a number or string" memo=OUT:2ACAB022982A1EBB9DF1777F7FC0B4B6D67A65AFB85E1B045CCE2FB057B00A61 module=signer service=bifrost
+11:07PM ERR app/bifrost/signer/sign.go:249 > fail to sign and broadcast tx out store item error="fail to broadcast transaction to chain: -3: Amount is not a number or string" module=signer service=bifrost
+```
+
+Those are coming from `bifrost/signer/sign.go` in functions:
+`processTransactions`
+and 
+`signAndBroadcast`
+
+Delving deeper
+`fail to broadcast transaction to chain: %w` 
+is coming from `dash/signer.go:524`
+
+The raw transaction looks like it's in the wrong format.
+Need to actually see it...
+I added in a line to dump the rawtx as a hex string.
+
+How do I check it will actually build?
+`go build ./cmd/mayanode`
+
+Okay now to try that in the stack...
+
+Is it `73     USER-1 => VAULT      [SWAP:DASH.DASH:USER-1] 1.00000000 BNB.BNB`
+or is it `74`?
+
+The rawtx is:
+`01000000010167f17cf0398cf4fa5cecccb24f8c2f08ca5e15bbd3f3de13fef7f21477ccd0000000006a473044022001b86ef00430bd9fd9d5ed69f9c31daa6353d104bebc32adb31ff8c863beae7f02201580fdb8b1b8ae03777c06c7f19f42f0371f0b80ff57408917ff6b745cb06f2c01210268f36ec62b3d1bb55d21ce1f002a8860aa6a8e982d1733aec352cad971c4e597ffffffff03d4482f93000000001976a9140026dcfac0cd2092ea5a124f2089c3ad5b7aa2cd88ac8c2fe0ea020000001976a91443634a1c7b1ebfa28a1f2fa5ec50d25f204f80f888ac0000000000000000466a444f55543a3030353330424132333633313531354634433537353834383043434437323233414243424446374530303031434134364139313836314243443745323439333400000000`
+
+```
+{
+  "txid": "c99e6194cbcf72a7cee3ec35b3c7d5feedba114551375cc71b79581995dee135",
+  "version": 1,
+  "type": 0,
+  "size": 304,
+  "locktime": 0,
+  "vin": [
+    {
+      "txid": "d0cc7714f2f7fe13def3d3bb155eca082f8c4fb2ccec5cfaf48c39f07cf16701",
+      "vout": 0,
+      "scriptSig": {
+        "asm": "3044022001b86ef00430bd9fd9d5ed69f9c31daa6353d104bebc32adb31ff8c863beae7f02201580fdb8b1b8ae03777c06c7f19f42f0371f0b80ff57408917ff6b745cb06f2c[ALL] 0268f36ec62b3d1bb55d21ce1f002a8860aa6a8e982d1733aec352cad971c4e597",
+        "hex": "473044022001b86ef00430bd9fd9d5ed69f9c31daa6353d104bebc32adb31ff8c863beae7f02201580fdb8b1b8ae03777c06c7f19f42f0371f0b80ff57408917ff6b745cb06f2c01210268f36ec62b3d1bb55d21ce1f002a8860aa6a8e982d1733aec352cad971c4e597"
+      },
+      "sequence": 4294967295
+    }
+  ],
+  "vout": [
+    {
+      "value": 24.69349588,
+      "valueSat": 2469349588,
+      "n": 0,
+      "scriptPubKey": {
+        "asm": "OP_DUP OP_HASH160 0026dcfac0cd2092ea5a124f2089c3ad5b7aa2cd OP_EQUALVERIFY OP_CHECKSIG",
+        "hex": "76a9140026dcfac0cd2092ea5a124f2089c3ad5b7aa2cd88ac",
+        "reqSigs": 1,
+        "type": "pubkeyhash",
+        "addresses": [
+          "yLLFQTxaW3wybbahkhyZcrdfqoRCnfzAV5"
+        ]
+      }
+    },
+    {
+      "value": 125.30495372,
+      "valueSat": 12530495372,
+      "n": 1,
+      "scriptPubKey": {
+        "asm": "OP_DUP OP_HASH160 43634a1c7b1ebfa28a1f2fa5ec50d25f204f80f8 OP_EQUALVERIFY OP_CHECKSIG",
+        "hex": "76a91443634a1c7b1ebfa28a1f2fa5ec50d25f204f80f888ac",
+        "reqSigs": 1,
+        "type": "pubkeyhash",
+        "addresses": [
+          "ySTm4oz74GJ8mPoTWMxNpyoM5GwSJyaA4z"
+        ]
+      }
+    },
+    {
+      "value": 0.00000000,
+      "valueSat": 0,
+      "n": 2,
+      "scriptPubKey": {
+        "asm": "OP_RETURN 4f55543a30303533304241323336333135313546344335373538343830434344373232334142434244463745303030314341343641393138363142434437453234393334",
+        "hex": "6a444f55543a30303533304241323336333135313546344335373538343830434344373232334142434244463745303030314341343641393138363142434437453234393334",
+        "type": "nulldata"
+      }
+    }
+  ]
+}
+```
+
+So the rawtx looks fine to me. Time to bring out the big guns.
+Thankfully Itzamna and crew have got debugging working.
+I'll see if I can use their patch file and do the same...
+
+It adds:
+
+```
+BUILD_FLAGS ... -gcflags 'all=-N -l
+
+CGO_ENABLED=0 go build...
+
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+command: ["dlv", "--listen=:2345", "--headless=true", "--api-version=2", "exec", "/docker/scripts/bifrost", "--", "-p"]
+```
+
+Exposes port `2345` (might have to do a ssh reverse tunnel for this)
+
+```
+ssh -L 2345:127.0.0.1:2345 adc-vm-zt
+```
+
+Where is the `bifrost` binary within the container?
+`/usr/bin/bifrost` if I understand the Dockerfile.
+The debug script they've sent in the patch is actually calling the entrypoint script, not the go binary.
+Does that still work??
+In the interest of efficiency I'm just going to "fix" it to follow the delve docs.  
+I removed the `command:` config from the docker compose, recreated it at the end of the `bifrost.sh` entrypoint script,
+and set the `dlv exec` target to the bifrost binary instead of the startup script.
+
+```
+docker run -it --rm registry.gitlab.com/mayachain/mayanode:mocknet bash
+```
+
+```
+docker run \
+  --network=host \
+  --rm \
+  -e RUNE=MAYA.CACAO \
+  -e LOGLEVEL=INFO \
+  -e PYTHONPATH=/app \
+  -e BLOCK_SCANNER_BACKOFF=5s \
+  -w /app \
+  -v $(pwd)/test/smoke:/app \
+    registry.gitlab.com/mayachain/mayanode:smoke \
+    python scripts/smoke.py --fast-fail=True
+
+# VVVVVVVVVVvv THIS COULD BE THE SECRET SAUCE vvVVVVVVVVVVVVVVVVvv
+docker run \
+  --network=host \
+  --rm \
+  -e RUNE=MAYA.CACAO \
+  -e LOGLEVEL=INFO \
+  -e PYTHONPATH=/app \
+  -w /app \
+  -v $(pwd)/test/smoke:/app \
+  -e BLOCK_SCANNER_BACKOFF="" \
+    registry.gitlab.com/mayachain/mayanode:smoke \
+    python scripts/smoke.py --fast-fail=True
+
+docker run \
+  --network=host \
+  --rm \
+  -e RUNE=THOR.RUNE \
+  -e LOGLEVEL=INFO \
+  -e PYTHONPATH=/app \
+  -e BLOCK_SCANNER_BACKOFF="" \
+  -w /app \
+  -v $(pwd)/test/smoke:/app \
+    registry.gitlab.com/mayachain/mayanode:smoke \
+    python scripts/smoke.py --fast-fail=True
+```
+
+Now stuck on test `40 PROVIDER-1 => VAULT      [SWAP:BTC.BTC:PROVIDER-1] 0.10000000 BTC/BTC`
+For some reason.
+
+```
+make smoke-build-image
+```
+
+- setup env
+- build containers
+- make run-mocknet
+- attach debugger to bifrost
+- wait for curl p2pid
+- run smoke container
+
+Will it get past `40` if I set `RUNE=THOR.RUNE`?
+I got past 40 before, just wondering what has changed.
+I put the bifrost back into standard non debug mode.
+
+Okay, `make smoke` got past 40
+What's different with that??
+I'm setting a block scanner backoff, they're not??
+
+`make run-mocknet` does
+`docker compose -f build/docker/docker-compose.yml --profile mocknet --profile midgard up -d`
+
+`make smoke` does
+```
+docker compose -f build/docker/docker-compose.yml --profile mocknet --profile midgard down -v
+docker compose -f build/docker/docker-compose.yml --profile mocknet --profile midgard build
+docker compose -f build/docker/docker-compose.yml --profile mocknet --profile midgard up -d
+docker pull registry.gitlab.com/mayachain/mayanode:smoke
+docker buildx build \
+  --cache-from registry.gitlab.com/mayachain/mayanode:smoke \
+  -f test/smoke/Dockerfile \
+  -t registry.gitlab.com/mayachain/mayanode:smoke \
+  ./test/smoke
+docker run \
+  --network=host \
+  --rm \
+  -e RUNE=MAYA.CACAO \
+  -e LOGLEVEL=INFO \
+  -e PYTHONPATH=/app \
+  -w /app \
+  -v $(pwd)/test/smoke:/app \
+  -e BLOCK_SCANNER_BACKOFF=${BLOCK_SCANNER_BACKOFF} \
+  registry.gitlab.com/mayachain/mayanode:smoke \
+  python scripts/smoke.py --fast-fail=True
+```
+
+```
+docker inspect $(docker ps -a --format '{{.ID}} {{.Image}}' | grep smoke | awk '{print $1}') | jq ".[0].Image"
+docker inspect docker-bifrost-1 --format '{{ .Image}}'
+docker inspect docker-mayanode-1 --format '{{ .Image}}'
+```
+
+smoke image: 8d67669c1fc79a708f5589f962c2600d24a56ebeeec6ccba242bf146bb5e125d  
+bifrost image: 3d0063c49810ed328bbb3894f1e4170a14a0fa0a36404570b9818ecb26687abe  
+mayanode image: 3d0063c49810ed328bbb3894f1e4170a14a0fa0a36404570b9818ecb26687abe  
+
+Trying:
+- stop-mocknet
+- run-mocknet
+- pasting the docker run above
+
+Could it be setting the BLOCK_SCANNER_BACKOFF to an empty string?
+
+Think I found the issue.
+The `createrawtransaction` command has changed
+
+Arguments:
+1. hexstring       (string, required) The hex string of the raw transaction
+2. maxfeerate      (numeric or string, optional, default=0.10) Reject transactions whose fee rate is higher than the specified value, expressed in DASH/kB.
+                   Set to 0 to accept any fee rate.
+
+3. instantsend     (boolean) Deprecated and ignored
+4. bypasslimits    (boolean, optional, default=false) Bypass transaction policy limits
+
+
+{"jsonrpc":"1.0","method":"sendrawtransaction","params":["0100000001d1967b094eeefdc7cc8270b8435237eec7de4e630fc43cb4e9c655d3b1cdea98000000006b483045022100cf0bb29d2186b8dbaae096e0afdb5569ed549853ccf764397707bf383edeb50602205724c64e879f12f2fae4314ddbded4d05a604cf881b4af6ac667b366b4412dc6012103a65365f24006764255b2f5699f6b6172a3ccdd7fbde8c7449a20c442919b825fffffffff03d4482f93000000001976a9140026dcfac0cd2092ea5a124f2089c3ad5b7aa2cd88ac8c2fe0ea020000001976a914e5edf781b6a1efe79dda0667d0bae7f94106882f88ac0000000000000000466a444f55543a4542344441413943353931354634343938313533414545414230433538433431383939363845344638444538463137303243393738373335334243384641374300000000",true],"id":6695}
+
+yep that's what's happening here
+the second argument is set to true, but the node is expecting arg 2 to be either a number or a string.
+
+Alright that seems very likely to be the issue here.
+
+```
+ssh -L 19898:127.0.0.1:19898 adc-vm-zt
+```
+
+```
+version, err := c.BackendVersion()
+```
+
+Ah it could actually be an issue with `parseBitcoindVersion` in `rpcclient`.
+
+I'm a little confused now.
+I added my changes to fix the version parsing to branch `thorchain-integration2`
+When I pulled, it fetched branches `thorchain-integration3` and `thorchain-integration5`
+Need to work out what's going on here tomorrow...
+
+
+### 12.06.2023 Monday 4h
+
+Starting just the dash node on my vm.
+
+```
+docker compose up -d dash
+docker logs -f docker-dash-1
+
+docker exec -it docker-dash-1 bash
+
+ssh -L 19898:127.0.0.1:19898 adc-vm-zt
+```
+
+Oh yeah `/Dash Core:19.1.0/` needs to be parsed correctly from `getnetworkinfo`.
+
+```
+github.com/alexdcox/dashd-go/rpcclient
+```
+
+```
+go get github.com/alexdcox/dashd-go@hotfix/fix-version-parse
+```
+
+Doesn't like my branch formatting
+
+```
+go get github.com/alexdcox/dashd-go@fix-version-parse
+```
+
+```
+go: downloading github.com/alexdcox/dashd-go v0.22.0-beta.0.20230612215533-bd68382c3d77
+go: github.com/alexdcox/dashd-go@v0.22.0-beta.0.20230612215533-bd68382c3d77: parsing go.mod:
+  module declares its path as: github.com/dashevo/dashd-go
+          but was required as: github.com/alexdcox/dashd-go
+```
+
+Oh this looks familiar.
+
+Go `replace` directive?
+
+```
+github.com/dashevo/dashd-go => github.com/alexdcox/dashd-go v0.22.0-beta.0.20230612215533-bd68382c3d77
+```
+
+What's the branch?
+Oh I'm behind dashevo/master still, thought I checked that.
+Pulled, rebased.
+
+`bd68382c...784c860a`
+
+Oh yeah I remember go doesn't like force push. Damn.
+How to force go to fetch the latest commit again?
+Just use the entire commit hash.
+
+`go get -u github.com/alexdcox/dashd-go@784c860a0c0a701cf7f55e473144992fee0b9d10`
+
+Then find the replace directive from the error:
+
+`downloading github.com/alexdcox/dashd-go v0.22.0-beta.0.20230612220201-784c860a0c0a`
+
+Then add to `go.mod`.
+
+`github.com/dashpay/dashd-go => github.com/alexdcox/dashd-go v0.22.0-beta.0.20230612220201-784c860a0c0a`
+
+Then go get the alias:
+
+`go get github.com/dashpay/dashd-go`
+
+Time to test...
+
+```
+github.com/dashpay/dashd-go/btcec: module github.com/dashpay/dashd-go@latest found (v0.24.0, replaced by github.com/alexdcox/dashd-go@v0.22.0-beta.0.20230612220201-784c860a0c0a), but does not contain package github.com/dashpay/dashd-go/btcec
+```
+
+github.com/dashpay/dashd-go/btcec
+github.com/alexdcox/dashd-go/btcec
+
+```
+github.com/dashpay/dashd-go => github.com/alexdcox/dashd-go v0.22.0-beta.0.20230612220201-784c860a0c0a
+github.com/dashpay/dashd-go/rpcclient => github.com/alexdcox/dashd-go/rpcclient v0.22.0-beta.0.20230612220201-784c860a0c0a
+github.com/dashpay/dashd-go/btcec => github.com/alexdcox/dashd-go/btcec v0.22.0-beta.0.20230612220201-784c860a0c0a
+```
+
+> btcec/go.mod has post-v0 module path "github.com/dashpay/dashd-go/btcec/v2" at revision 784c860a0c0a
+
+```
+go get github.com/dashpay/dashd-go/btcec/v2
+go get -u github.com/dashpay/dashd-go/chaincfg@784c860a0c0a701cf7f55e473144992fee0b9d10
+```
+
+There are broken tests within `dashd-go`.
+addrmanager_internal_test.go:165
+
+go get github.com/alexdcox/dashd-go@f8549e242eddb12a272b1d565d6e07d634b268e5
+
+If I delete all traces of dashpay/dashd-go and run a go mod tidy, it is still
+requiring it. This is making it hard to test.
+Why is it required????
+
+There are 4 go modules in the `dashd-go` repo:  
+./go.mod  
+./btcutil/go.mod (no dashpay in go.sum)  
+./btcutil/psbt/go.mod (deleted dashpay directives, not in sum)  
+./btcec/go.mod (not in sum)  
+
+I've removed require dashpay directives from each one, and ensured they use the
+correct local path replacement directive.
+
+Also rebuilt go.sum for each.
+
+It still says:
+
+`go: found github.com/dashpay/dashd-go/btcec/v2/ecdsa in github.com/dashpay/dashd-go/btcec/v2 v2.0.0-00010101000000-000000000000`
+
+Fixed broken test.
+d893c2878507780d70b56510b7ab927c763cec9b
+
+1. go get the hash (it will error)
+2. use formatting from error to update replace directive
+3. fetch the update for the package you've replaced by using the original name
+
+github.com/alexdcox/dashd-go@v0.22.0-beta.0.20230612231255-d893c2878507
+
+```
+go get github.com/dashpay/dashd-go                                                                                                                                                                                                                                                                                                                                  ~/go/src/github.com/alexdcox/crypto-tools 1 ↵
+go: downloading github.com/dashpay/dashd-go/btcutil v0.0.0-00010101000000-000000000000
+github.com/dashpay/dashd-go imports
+  github.com/dashpay/dashd-go/btcutil: github.com/dashpay/dashd-go/btcutil@v0.0.0-00010101000000-000000000000: invalid version: unknown revision 000000000000
+github.com/dashpay/dashd-go imports
+  github.com/dashpay/dashd-go/btcutil/bloom: github.com/dashpay/dashd-go/btcutil@v0.0.0-00010101000000-000000000000: invalid version: unknown revision 000000000000
+github.com/dashpay/dashd-go imports
+  github.com/dashpay/dashd-go/blockchain/indexers imports
+  github.com/dashpay/dashd-go/btcutil/gcs: github.com/dashpay/dashd-go/btcutil@v0.0.0-00010101000000-000000000000: invalid version: unknown revision 000000000000
+github.com/dashpay/dashd-go imports
+  github.com/dashpay/dashd-go/blockchain/indexers imports
+  github.com/dashpay/dashd-go/btcutil/gcs/builder: github.com/dashpay/dashd-go/btcutil@v0.0.0-00010101000000-000000000000: invalid version: unknown revision 000000000000
+```
+
+```
+go get github.com/alexdcox/dashd-go@d76c4b53223db0e043c8ccfa6d8f3fc3ad88cf3b
+go get github.com/alexdcox/dashutil@fe93ece8d0e7222ccd2544b3ff3bfd0c0d62e4bb
+```
+
+```
+  pubKey := btcec.NewPublicKey(
+    hexToFieldVal("d2e670a19c6d753d1a6d8b20bd045df8a08fb162cf508956c31268c6d81ffdab"),
+    hexToFieldVal("ab65528eefbb8057aa85d597258a3fbd481a24633bc9b47a9aa045c91371de52"),
+  )
+
+  var f btcec.FieldVal
+  if overflow := f.SetByteSlice(b); 
+```
+
+`bbb86436c6e0`
+
+```
+childXFieldVal := new(btcec.FieldVal)
+childXFieldVal.SetByteSlice(childX.Bytes())
+childYFieldVal := new(btcec.FieldVal)
+childYFieldVal.SetByteSlice(childY.Bytes())
+pk := btcec.NewPublicKey(childXFieldVal, childYFieldVal)
+```
+
+```
+go get github.com/alexdcox/dashutil@fc4feafd54e5c0b63b791148645d09c39c7fa13c
+```
+
+> t.Fatal("ProcessTransaction: reported %d accepted
+
+Right, finally managed to test it by creating a new branch and just following
+the go conventions. 
+
+
+### 13.06.2023 Tuesday 5h
+
+Maya have opened up a new repo so I don't need to wait for DCG.
+
+What's the best way to apply changes from one repo to another:
+- apply patch of diff
+- add remote
+
+I used the remote approach:
+- added local directory as remote
+- created duplicate branch name fix-version-parse
+- merged from alexdash/fix-version-parse (which was a fast forward merge as intended)
+- pushed to remote
+
+That's a nice workflow. So my dashd-go stays up-to-date, and the maya version
+inherits those changes. No copying files, easy commands, can focus on essentially
+one project/repo. Nice.
+
+So now maya has `784c860a0c0a701cf7f55e473144992fee0b9d10`
+Will try that in my crypto tools to send a raw transaction
+Latest testnet block is `905217`
+
+```
+go get -u gitlab.com/mayachain/dashd-go@04869cb5
+```
+
+Updated import path.
+Now getting the cyclic dependency warnings:
+
+```
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/btcec/v2/ecdsa: reading gitlab.com/mayachain/dashd-go/btcec/go.mod at revision btcec/v2.1.0: unknown revision btcec/v2.1.0
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/btcutil: reading gitlab.com/mayachain/dashd-go/btcutil/go.mod at revision btcutil/v1.2.0: unknown revision btcutil/v1.2.0
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/btcutil/bloom: reading gitlab.com/mayachain/dashd-go/btcutil/go.mod at revision btcutil/v1.2.0: unknown revision btcutil/v1.2.0
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/blockchain imports
+  gitlab.com/mayachain/dashd-go/btcec/v2: reading gitlab.com/mayachain/dashd-go/btcec/go.mod at revision btcec/v2.1.0: unknown revision btcec/v2.1.0
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/blockchain/indexers imports
+  gitlab.com/mayachain/dashd-go/btcutil/gcs: reading gitlab.com/mayachain/dashd-go/btcutil/go.mod at revision btcutil/v1.2.0: unknown revision btcutil/v1.2.0
+gitlab.com/mayachain/dashd-go imports
+  gitlab.com/mayachain/dashd-go/blockchain/indexers imports
+  gitlab.com/mayachain/dashd-go/btcutil/gcs/builder: reading gitlab.com/mayachain/dashd-go/btcutil/go.mod at revision btcutil/v1.2.0: unknown revision btcutil/v1.2.0
+go: downloading golang.org/x/text v0.10.0
+go: downloading golang.org/x/term v0.9.0
+```
+
+Time to remove those pesky submodules...
+
+Temporarily removed golang actions on save: optimise imports and reformat code.
+To keep these commits a little cleaner.
+
+Replace `gitlab.com/mayachain/dashd-go/btcec/v2` with `gitlab.com/mayachain/dashd-go/btcec`
+
+Fixed that broken test, again.
+Now what?! Are we good?!!!
+
+```
+go get -u gitlab.com/mayachain/dashd-go@c884719a
+```
+
+Well that worked. Let's try some node communication...
+
+I'm at 761K on my test node so another 150K or so before it will recognise any
+payments from a faucet.
+
+Can I get the testnet wallet on my phone again?
+Yes.
+
+```
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+```
+
+Build > Build Tools > Gradle
+
+error:
+> Attribute meta-data#com.google.android.geo.API_KEY@value at
+  AndroidManifest.xml:70:13-51 requires a placeholder substitution but no value
+  for <GOOGLE_PLAY_API_KEY> is provided.
+
+
+`build.gradle`
+
+```
+manifestPlaceholders = [
+    GOOGLE_PLAY_API_KEY: "YOUR_API_KEY_HERE"
+]
+```
+
+It wants me to use java 8. Fine.
+openjdk@8: The x86_64 architecture is required for this software.
+
+Maybe it's not fine.
+Can't build via my m1 laptop.
+ffs.
+Onto my vm then...
+
+```
+dpkg --add-architecture i386
+apt update
+apt install git gradle openjdk-8-jdk libstdc++6:i386 zlib1g:i386
+```
+
+Now he wants me to install the android sdk and add to ANDROID_HOME. Why not add
+that to the previous apt install list??
+
+AM I GOING CRAZY HERE????!??? 🤯
+
+```
+apt install android-sdk
+```
+
+This was just thrown in next. Is that... a command from the project dir?
+Am I suppose to recognise that?
+
+`tools/android update sdk --no-ui --force --all --filter tool,platform-tool,build-tools-28,android-15,android-28`
+
+Apparently the command line tools are not bundled with `android-sdk`.
+That's why you can't get it with apt. Ok.
+Why is that essential binary not included? Who knows?
+
+```
+wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+unzip commandlinetools*
+rm -rf commandlinetools*.zip
+cmdline-tools
+```
+
+Error: Could not determine SDK root.
+Error: Either specify it explicitly with --sdk_root= or move this package into its expected location: <sdk>/cmdline-tools/latest/
+
+Okay so the format has changed with the newer sdkmanager than tools/android.
+It's now:
+
+```
+./cmdline-tools/latest/bin/sdkmanager "tools" "platform-tools" "build-tools;28.0.3" "platforms;android-15" "platforms;android-28"
+```
+
+export ANDROID_HOME=/usr/lib/android-sdk
+export ANDROID_NDK_HOME=/usr/lib/android-ndk/android-ndk-r25c
+
+```
+gradle clean assemble_testNet3Debug -x test
+```
+
+Whoa it's working.
+
+Oh wait, spoke too soon:
+
+```
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file '/code/dash-wallet/common/build.gradle' line: 1
+
+* What went wrong:
+A problem occurred evaluating project ':common'.
+> Failed to apply plugin [id 'com.android.internal.version-check']
+   > Minimum supported Gradle version is 7.3.3. Current version is 4.4.1. If using the gradle wrapper, try editing the distributionUrl in /code/dash-wallet/gradle/wrapper/gradle-wrapper.properties to gradle-7.3.3-all.zip
+
+* Try:
+Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+BUILD FAILED in 1m 33s
+```
+
+My gradle is 4.4.something
+apt is out, sdkman was recommended
+
+```
+apt install zip
+curl -s "https://get.sdkman.io" | bash
+sdk install gradle 7.3.3
+```
+
+Take 2...
+
+```
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+A problem occurred configuring project ':wallet'.
+> Failed to notify project evaluation listener.
+   > The file '/code/dash-wallet/local.properties' could not be found
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+BUILD FAILED in 22s
+```
+
+Ok I'll make it then I guess. Taking from presumably the autogenerated android studio version:
+
+```
+sdk.dir=/usr/lib/android-sdk
+ndk.dir=/usr/lib/android-ndk/android-ndk-r25c
+```
+
+Take 3...
+
+```
+> Task :wallet:process_testNet3DebugMainManifest FAILED
+/code/dash-wallet/wallet/AndroidManifest.xml:70:13-51 Error:
+        Attribute meta-data#com.google.android.geo.API_KEY@value at AndroidManifest.xml:70:13-51 requires a placeholder substitution but no value for <GOOGLE_PLAY_API_KEY> is provided.
+/code/dash-wallet/wallet/AndroidManifest.xml Error:
+        Validation failed, exiting
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':wallet:process_testNet3DebugMainManifest'.
+> Manifest merger failed with multiple errors, see logs
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+BUILD FAILED in 1m 50s
+```
+
+Okay back to my previous attempt at fixing this in `wallet/build.gradle`
+
+Take 4...
+
+Success! In only 4 takes too, was expecting at least double digits.
+
+Okay so how do I actually build the apk now?
+
+`gradle tasks`
+
+```
+gradle assemble_testNet3
+gradle compile_testNet3DebugSources
+```
+
+FOUND IT
+
+```
+scp adc-vm-zt:/code/dash-wallet/wallet/build/outputs/apk/_testNet3/release/wallet-_testNet3-release-unsigned.apk .
+adb install ./wallet-_testNet3-release-unsigned.apk
+``` 
+
+ Not sure when it was created, but there it is!
+ 
+> adb: failed to install ./wallet-_testNet3-release-unsigned.apk: Failure [INSTALL_PARSE_FAILED_NO_CERTIFICATES: Failed to collect certificates from /data/app/vmdl416520446.tmp/base.apk: Attempt to get length of null array]
+ 
+
+ ```
+ scp adc-vm-zt:/code/dash-wallet/wallet/build/outputs/apk/_testNet3/debug/wallet-_testNet3-debug.apk .
+ adb install ./wallet-_testNet3-debug.apk
+ ```
+ 
+ Well, it installed, and immediately crashed. Damn
+ 
+Not going to waste more time on this and just wait for the testnet. 
+
+ 
+### 14.06.2023 Wednesday 10h
+
+Dash testnet down.
+Trying with my llmq testnet from `thornode-cluster`.
+
+Is there a way to expose a docker port to the host after it has been launched?
+
+Yes, but it involves setting up ssh on the host machine and opening up a reverse
+tunnel to `host.docker.internal`.
+
+I'll just change the compose...
+
+docker pull dashpay/dashd:19.1.0
+
+https://insight.testnet.networks.dash.org:3002/insight/
+
+For some reason the quorum is not syncing.
+
+socket send error Broken pipe (32) (peer=435)
+
+Right smokes are a smokin
+
+Updating go.
+
+```
+/usr/lib/go-1.18
+/usr/lib/go-1.20.5
+cd /usr/lib
+ln -s go-1.20.5 go
+rm /usr/bin/go
+ln -s /usr/lib/go/bin/go /usr/bin/go
+```
+
+```
+export GOROOT=/usr/local/go
+export GOPATH=~/.go
+export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+```
+
+```
+# github.com/cosmos/cosmos-sdk/store/iavl
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/tree.go:10:11: cannot use (*immutableTree)(nil) (value of type *immutableTree) as Tree value in variable declaration: *immutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/tree.go:11:11: cannot use (*iavl.MutableTree)(nil) (value of type *"github.com/cosmos/iavl".MutableTree) as Tree value in variable declaration: *"github.com/cosmos/iavl".MutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:69:9: cannot use tree (variable of type *"github.com/cosmos/iavl".MutableTree) as Tree value in struct literal: *"github.com/cosmos/iavl".MutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:81:9: cannot use tree (variable of type *"github.com/cosmos/iavl".MutableTree) as Tree value in struct literal: *"github.com/cosmos/iavl".MutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:92:23: cannot use &immutableTree{…} (value of type *immutableTree) as Tree value in struct literal: *immutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:101:9: cannot use &immutableTree{…} (value of type *immutableTree) as Tree value in struct literal: *immutableTree does not implement Tree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:204:7: impossible type switch case: *immutableTree
+  st.tree (variable of type Tree) cannot have dynamic type *immutableTree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:206:7: impossible type switch case: *iavl.MutableTree
+  st.tree (variable of type Tree) cannot have dynamic type *"github.com/cosmos/iavl".MutableTree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:218:7: impossible type switch case: *immutableTree
+  st.tree (variable of type Tree) cannot have dynamic type *immutableTree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+/go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.1/store/iavl/store.go:220:7: impossible type switch case: *iavl.MutableTree
+  st.tree (variable of type Tree) cannot have dynamic type *"github.com/cosmos/iavl".MutableTree (wrong type for method Get)
+    have Get([]byte) ([]byte, error)
+    want Get([]byte) (int64, []byte)
+```
+
+My cosmos sdk slipped back a few minor versions somehow.
+Redoing go mod tidy with that.
+Rerunning mocknet tests.
+Pushing.
+Rebuilding.
+Smoking.
+
+`go test -tags mocknet ./bifrost/pkg/chainclients/dash`
+
+Maya team added the createwallet steps but didn't create a mock response, so the
+tests failed.
+
+Not sure if they're handling the case where the wallet has already been created -
+ dashd throws an error if you recreate.
+
+Not able to build the smoke image atm:
+
+```
+#0 2.409 E: Unable to locate package libsecp256k1-0
+------
+ERROR: failed to solve: executor failed running [/bin/sh -c apt-get update && apt-get install -y libsecp256k1-0 build-essential git]: exit code: 100
+make: *** [Makefile:163: smoke-build-image] Error 1
+```
+
+`libsecp256k1-0` is now `libsecp256k1-1`.
+
+```
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/web3/contract.py", line 1498, in call_contract_function
+    output_data = web3.codec.decode_abi(output_types, return_data)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/codec.py", line 196, in decode_abi
+    return self.decode(types, data)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/codec.py", line 210, in decode
+    return decoder(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 127, in __call__
+    return self.decode(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_utils/functional.py", line 45, in inner
+    return callback(fn(*args, **kwargs))
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 173, in decode
+    yield decoder(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 127, in __call__
+    return self.decode(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 142, in decode
+    start_pos = decode_uint_256(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 127, in __call__
+    return self.decode(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 198, in decode
+    raw_data = self.read_data_from_stream(stream)
+  File "/usr/local/lib/python3.10/site-packages/eth_abi/decoding.py", line 305, in read_data_from_stream
+    raise InsufficientDataBytes(
+eth_abi.exceptions.InsufficientDataBytes: Tried to read 32 bytes.  Only got 0 bytes
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/scripts/smoke.py", line 690, in <module>
+    main()
+  File "/app/scripts/smoke.py", line 123, in main
+    smoker = Smoker(
+  File "/app/scripts/smoke.py", line 231, in __init__
+    self.mock_ethereum = MockEthereum(eth)
+  File "/app/chains/ethereum.py", line 62, in __init__
+    symbol = token.functions.symbol().call()
+  File "/usr/local/lib/python3.10/site-packages/web3/contract.py", line 949, in call
+    return call_contract_function(
+  File "/usr/local/lib/python3.10/site-packages/web3/contract.py", line 1520, in call_contract_function
+    raise BadFunctionCallOutput(msg) from e
+web3.exceptions.BadFunctionCallOutput: Could not transact with/call contract function, is contract deployed correctly and chain synced?
+```
+
+What in the name of our sweet sweet lord is that?
+Let's pretend that didn't happen and try again.
+
+```
+I[2023-06-14 22:22:48,903] 91 PROVIDER-1 => VAULT      [WITHDRAW:DASH.DASH:100] 0.00000001 MAYA.CACAO
+E[2023-06-14 22:23:02,185] out coins not matching 134997762 DASH.DASH != 134997610 DASH.DASH
+E[2023-06-14 22:23:53,335] Events mismatch
+```
+
+Oh that's painfully close.
+Recreating smoke values.
+
+```
+make smoke-unit-test
+```
+
+```
+I[2023-06-14 23:00:28,672] jsonpickle is not installed. The to_json_pickle and from_json_pickle functions will not work.If you dont need those functions, there is nothing to do.
+```
+It's complaining about jsonpickle not being installed.
+Might have to add this to requirements?
+
+```
+jsonpickle==3.0.1
+```
+
+Ok maya know the smoke unit tests are broken, but didn't realise they generate
+the events/balances, and were creating those by hand.
+
+```
+I[2023-06-15 00:15:32,533] 91 PROVIDER-1 => VAULT      [WITHDRAW:DASH.DASH:100] 0.00000001 MAYA.CACAO
+E[2023-06-15 00:15:46,326] out coins not matching 135249474 DASH.DASH != 135249322 DASH.DASH
+E[2023-06-15 00:16:37,477] Events mismatch
+
+E[2023-06-15 00:16:37,477] Smoke tests failed
+Traceback (most recent call last):
+  File "/app/scripts/smoke.py", line 143, in main
+    smoker.run()
+  File "/app/scripts/smoke.py", line 656, in run
+    outbounds, block_height, events, sim_events = self.sim_catch_up(
+  File "/app/scripts/smoke.py", line 575, in sim_catch_up
+    self.check_events(events[-count_events:],
+  File "/app/scripts/smoke.py", line 385, in check_events
+    self.error("Events mismatch\n")
+  File "/app/scripts/smoke.py", line 256, in error
+    raise Exception(err)
+Exception: Events mismatch
+
+>>>>>>>>>>>>>>> MISSING SIM EVENT
+Event outbound | {'in_tx_id': 'EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D'} {'id': 'F3950E859533D53CE4AA38D6DAD9E9E4CF02C90AD2AD9843BF007A63BDA31E7B'} {'chain': 'DASH'} {'from': 'yQqcxBiZ9b5V1Z8XpS4vd1k6kwCaK7hcCY'} {'to': 'yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L'} {'coin': '135249322 DASH.DASH'} {'memo': 'OUT:EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D'}
+<<<<<<<<<<<<<<< EXTRA SIM EVENT
+Event gas | {'asset': 'DOGE.DOGE'} {'asset_amt': '750000000'} {'cacao_amt': '2779042719'} {'transaction_count': '1'}
+make: *** [Makefile:171: smoke] Error 1
+```
+
+```
+12:15AM INF app/x/mayachain/handler_deposit.go:59 > receive MsgDeposit coins=[{"amount":"1","asset":"MAYA.CACAO"}] from=tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzw memo=WITHDRAW:DASH.DASH:100
+12:15AM INF app/x/mayachain/handler_withdraw.go:33 > receive MsgWithdrawLiquidity withdraw address=tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzw withdraw basis points=100
+12:15AM INF app/x/mayachain/withdraw_current.go:74 > pool before withdraw balance RUNE=387454601955 balance asset=13530495372 pool units=100000000000
+12:15AM INF app/x/mayachain/withdraw_current.go:75 > liquidity provider before withdraw liquidity provider unit=100000000000
+12:15AM INF app/x/mayachain/withdraw_current.go:105 > imp loss calculation deposit value=529534829992 protection=0 redeem value=774909203910
+12:15AM INF app/x/mayachain/withdraw_current.go:169 > client withdraw RUNE=3874546020 asset=135304954 units left=99000000000
+12:15AM INF app/x/mayachain/withdraw_current.go:175 > pool after withdraw balance RUNE=383580055935 balance asset=13395190418 pool unit=99000000000
+12:15AM INF app/x/mayachain/handler_outbound_tx.go:50 > receive MsgOutboundTx request outbound tx hash=0000000000000000000000000000000000000000000000000000000000000000
+12:15AM INF go/pkg/mod/github.com/tendermint/tendermint@v0.34.21/state/execution.go:333 > executed block height=168 module=state num_invalid_txs=0 num_valid_txs=1
+12:15AM INF go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.9/baseapp/abci.go:315 > commit synced commit=436F6D6D697449447B5B383520363320393820343020313132203231362034342031343620323436203830203731203336203234312031353020353120313520323431203130302032323620313635203230372031313120323438203130392031343920363020313333203230342037322031343520323534203131365D3A41387D
+12:15AM INF go/pkg/mod/github.com/tendermint/tendermint@v0.34.21/state/execution.go:235 > committed state app_hash=553F622870D82C92F6504724F196330FF164E2A5CF6FF86D953C85CC4891FE74 height=168 module=state num_txs=1
+12:15AM INF go/pkg/mod/github.com/tendermint/tendermint@v0.34.21/state/execution.go:333 > executed block height=169 module=state num_invalid_txs=0 num_valid_txs=0
+12:15AM INF go/pkg/mod/github.com/cosmos/cosmos-sdk@v0.45.9/baseapp/abci.go:315 > commit synced commit=436F6D6D697449447B5B322032333020323334203138382031343920323230203435203133203938203136312039342031373620313432203134203130322031303420313130203232372036302032333520323437203132322032343120383620313335203332203530203137382037332032343820323532203231355D3A41397D
+12:15AM INF go/pkg/mod/github.com/tendermint/tendermint@v0.34.21/state/execution.go:235 > committed state app_hash=02E6EABC95DC2D0D62A15EB08E0E66686EE33CEBF77AF156872032B249F8FCD7 height=169 module=state num_txs=0
+12:15AM INF app/x/mayachain/handler_network_fee.go:112 > update network fee chain=DASH fee-rate=15 transaction-size=304
+12:15AM INF app/x/mayachain/handler_observed_txout.go:171 > handleMsgObservedTxOut request Tx:="F3950E859533D53CE4AA38D6DAD9E9E4CF02C90AD2AD9843BF007A63BDA31E7B: yQqcxBiZ9b5V1Z8XpS4vd1k6kwCaK7hcCY ==> yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L (Memo: OUT:EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D) 135249322 DASH.DASH (gas: [27816 DASH.DASH])"
+12:15AM INF app/x/mayachain/handler_outbound_tx.go:50 > receive MsgOutboundTx request outbound tx hash=F3950E859533D53CE4AA38D6DAD9E9E4CF02C90AD2AD9843BF007A63BDA31E7B
+```
+
+```
+12:15AM INF app/bifrost/mayaclient/broadcast.go:100 > Received a TxHash of 2DD7B26B2A660BC2CFD96451FD3DE4BEE29339346973925D116B888EF802DC9C from the mayachain module=mayachain_client service=bifrost
+12:15AM INF app/bifrost/observer/observe.go:516 > sign and send to thorchain successfully module=observer service=bifrost thorchain hash=2DD7B26B2A660BC2CFD96451FD3DE4BEE29339346973925D116B888EF802DC9C
+12:15AM INF app/bifrost/signer/sign.go:285 > Received a TxOut Array of {168 [{DASH yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L tmayapub1addwnpepqfsqkm03rnl0425y77uvfmt2wp6lmn22mgq6n55d3f0p3wl3hx5rgnt59kv 13395218234 DASH.DASH OUT:EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D [27816 DASH.DASH] 91 EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D    <nil>}]} from the Thorchain module=signer service=bifrost
+12:15AM INF app/bifrost/signer/sign.go:229 > Signing transaction height=168 module=signer num=0 service=bifrost status=1 tx={"aggregator":"","chain":"DASH","coins":[{"amount":"135249322","asset":"DASH.DASH"}],"gas_rate":91,"in_hash":"EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D","max_gas":[{"amount":"27816","asset":"DASH.DASH","decimals":8}],"memo":"OUT:EEFA12A4189E20C99D5B51B03A47A099B35C448E847E06A945072FD48FF9A79D","out_hash":"","to":"yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L","vault_pubkey":"tmayapub1addwnpepqfsqkm03rnl0425y77uvfmt2wp6lmn22mgq6n55d3f0p3wl3hx5rgnt59kv"}
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:296 > max gas: [27816 DASH.DASH], however estimated gas need 41041 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:327 > total: 13530495372, to customer: 135249322, gas: 27816 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:332 > send 13395218234 back to self module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:427 > UTXOs to sign: 2 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:451 > final size: 451, final vbyte: 451 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/signer.go:527 > broadcast to DASH chain successfully hash=f3950e859533d53ce4aa38d6dad9e9e4cf02c90ad2ad9843bf007a63bda31e7b module=dash service=bifrost
+12:15AM INF app/bifrost/mayaclient/broadcast.go:46 > account info account_number=0 module=mayachain_client sequence_number=98 service=bifrost
+12:15AM INF app/bifrost/mayaclient/broadcast.go:100 > Received a TxHash of 7F828ABEC772F4BC986FF888C0DEDAD9A7248721B61E1CFE2D62E760C13C1095 from the mayachain module=mayachain_client service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/client.go:1017 > totalTxValue:0,total fee and Subsidy:34518104363,confirmation:0 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/client.go:1042 > confirmation required: 0 module=dash service=bifrost
+12:15AM INF app/bifrost/pkg/chainclients/dash/client.go:1060 > confirmation required: 0 module=dash service=bifrost
+12:15AM INF app/bifrost/mayaclient/broadcast.go:46 > account info account_number=0 module=mayachain_client sequence_number=99 service=bifrost
+12:15AM INF app/bifrost/mayaclient/broadcast.go:100 > Received a TxHash of E184771039A3B953D6FA8C68DE755D94CBEECA8F4AA1A4677D87DE66A06E7DD8 from the mayachain module=mayachain_client service=bifrost
+12:15AM INF app/bifrost/observer/observe.go:516 > sign and send to thorchain successfully module=observer service=bifrost thorchain hash=E184771039A3B953D6FA8C68DE755D94CBEECA8F4AA1A4677D87DE66A06E7DD8
+```
+
+```
+dash-cli gettransaction f3950e859533d53ce4aa38d6dad9e9e4cf02c90ad2ad9843bf007a63bda31e7b
+```
+
+```
+{
+  "amount": 1.35249322,
+  "confirmations": 31,
+  "instantlock": false,
+  "instantlock_internal": false,
+  "chainlock": false,
+  "blockhash": "72c6392c70bec7bb53debeb886a5ff3f17f4dcc2e1b5cca3a48b78f0e6c38bdd",
+  "blockindex": 5,
+  "blocktime": 1686788143,
+  "txid": "f3950e859533d53ce4aa38d6dad9e9e4cf02c90ad2ad9843bf007a63bda31e7b",
+  "walletconflicts": [
+  ],
+  "time": 1686788142,
+  "timereceived": 1686788142,
+  "details": [
+    {
+      "involvesWatchonly": true,
+      "address": "yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L",
+      "category": "receive",
+      "amount": 1.35249322,
+      "label": "",
+      "vout": 0
+    }
+  ],
+  "hex": "010000000260cd1f5035172a25dbe2b8a5e3c347c68b579d77a62ba2aad62b2d25d626167e010000006a47304402201387c7491d596d60a92b62361aa0bc6cec55ce23695554701e329f99ac32fd530220249a144f552500935b5fd9f62e735c7952e5772167b70adbd16ed5a8444c7629012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834ffffffff8e767f3a8680d1225c4b1ace04b03cdeab1d2c9d3857c55234854a7d39ae8ad2000000006a473044022065390049499eeca9f7cdefc0de5f15bf77a325a3978e66e8e513632d9576682d0220410c192a6378d30087b29561f429daec1be6fac61a88649d205e5ca835311600012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834ffffffff03aabd0f08000000001976a9147c2bb42a8be69791ec763e51f5a49bcd41e8223788ac3acf6a1e030000001976a91431956a696d7415b47ed02919814422e9aa15c25288ac0000000000000000466a444f55543a4545464131324134313839453230433939443542353142303341343741303939423335433434384538343745303641393435303732464434384646394137394400000000"
+}
+```
+
+```
+{
+  "txid": "f3950e859533d53ce4aa38d6dad9e9e4cf02c90ad2ad9843bf007a63bda31e7b",
+  "version": 1,
+  "type": 0,
+  "size": 451,
+  "locktime": 0,
+  "vin": [
+    {
+      "txid": "7e1626d6252d2bd6aaa22ba6779d578bc647c3e3a5b8e2db252a1735501fcd60",
+      "vout": 1,
+      "scriptSig": {
+        "asm": "304402201387c7491d596d60a92b62361aa0bc6cec55ce23695554701e329f99ac32fd530220249a144f552500935b5fd9f62e735c7952e5772167b70adbd16ed5a8444c7629[ALL] 02600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834",
+        "hex": "47304402201387c7491d596d60a92b62361aa0bc6cec55ce23695554701e329f99ac32fd530220249a144f552500935b5fd9f62e735c7952e5772167b70adbd16ed5a8444c7629012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834"
+      },
+      "value": 125.30495372,
+      "valueSat": 12530495372,
+      "address": "yQqcxBiZ9b5V1Z8XpS4vd1k6kwCaK7hcCY",
+      "sequence": 4294967295
+    },
+    {
+      "txid": "d28aae397d4a853452c557389d2c1dabde3cb004ce1a4b5c22d180863a7f768e",
+      "vout": 0,
+      "scriptSig": {
+        "asm": "3044022065390049499eeca9f7cdefc0de5f15bf77a325a3978e66e8e513632d9576682d0220410c192a6378d30087b29561f429daec1be6fac61a88649d205e5ca835311600[ALL] 02600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834",
+        "hex": "473044022065390049499eeca9f7cdefc0de5f15bf77a325a3978e66e8e513632d9576682d0220410c192a6378d30087b29561f429daec1be6fac61a88649d205e5ca835311600012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834"
+      },
+      "value": 10.00000000,
+      "valueSat": 1000000000,
+      "address": "yQqcxBiZ9b5V1Z8XpS4vd1k6kwCaK7hcCY",
+      "sequence": 4294967295
+    }
+  ],
+  "vout": [
+    {
+      "value": 1.35249322,
+      "valueSat": 135249322,
+      "n": 0,
+      "scriptPubKey": {
+        "asm": "OP_DUP OP_HASH160 7c2bb42a8be69791ec763e51f5a49bcd41e82237 OP_EQUALVERIFY OP_CHECKSIG",
+        "hex": "76a9147c2bb42a8be69791ec763e51f5a49bcd41e8223788ac",
+        "reqSigs": 1,
+        "type": "pubkeyhash",
+        "addresses": [
+          "yXdzzagQPwWXdZzFD2vRmsYMxgeD6o9D2L"
+        ]
+      }
+    },
+    {
+      "value": 133.95218234,
+      "valueSat": 13395218234,
+      "n": 1,
+      "scriptPubKey": {
+        "asm": "OP_DUP OP_HASH160 31956a696d7415b47ed02919814422e9aa15c252 OP_EQUALVERIFY OP_CHECKSIG",
+        "hex": "76a91431956a696d7415b47ed02919814422e9aa15c25288ac",
+        "reqSigs": 1,
+        "type": "pubkeyhash",
+        "addresses": [
+          "yQqcxBiZ9b5V1Z8XpS4vd1k6kwCaK7hcCY"
+        ]
+      }
+    },
+    {
+      "value": 0.00000000,
+      "valueSat": 0,
+      "n": 2,
+      "scriptPubKey": {
+        "asm": "OP_RETURN 4f55543a45454641313241343138394532304339394435423531423033413437413039394233354334343845383437453036413934353037324644343846463941373944",
+        "hex": "6a444f55543a45454641313241343138394532304339394435423531423033413437413039394233354334343845383437453036413934353037324644343846463941373944",
+        "type": "nulldata"
+      }
+    }
+  ],
+  "hex": "010000000260cd1f5035172a25dbe2b8a5e3c347c68b579d77a62ba2aad62b2d25d626167e010000006a47304402201387c7491d596d60a92b62361aa0bc6cec55ce23695554701e329f99ac32fd530220249a144f552500935b5fd9f62e735c7952e5772167b70adbd16ed5a8444c7629012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834ffffffff8e767f3a8680d1225c4b1ace04b03cdeab1d2c9d3857c55234854a7d39ae8ad2000000006a473044022065390049499eeca9f7cdefc0de5f15bf77a325a3978e66e8e513632d9576682d0220410c192a6378d30087b29561f429daec1be6fac61a88649d205e5ca835311600012102600b6df11cfefaaa84f7b8c4ed6a7075fdcd4ada01a9d28d8a5e18bbf1b9a834ffffffff03aabd0f08000000001976a9147c2bb42a8be69791ec763e51f5a49bcd41e8223788ac3acf6a1e030000001976a91431956a696d7415b47ed02919814422e9aa15c25288ac0000000000000000466a444f55543a4545464131324134313839453230433939443542353142303341343741303939423335433434384538343745303641393435303732464434384646394137394400000000",
+  "blockhash": "72c6392c70bec7bb53debeb886a5ff3f17f4dcc2e1b5cca3a48b78f0e6c38bdd",
+  "height": 879,
+  "confirmations": 391,
+  "time": 1686788143,
+  "blocktime": 1686788143,
+  "instantlock": false,
+  "instantlock_internal": false,
+  "chainlock": false
+}
+```
+
+```
+var a = [{"chain":"BNB","from_address":"MASTER","to_address":"CONTRIB","memo":"SEED","coins":[{"asset":"BNB.BNB","amount":1000000000}],"gas":null,"max_gas":null},{"chain":"BNB","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"BNB.BNB","amount":2600000000},{"asset":"BNB.LOK-3C0","amount":150000000000}],"gas":null,"max_gas":null},{"chain":"BNB","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"BNB.BNB","amount":1000000000},{"asset":"BNB.LOK-3C0","amount":80000000000}],"gas":null,"max_gas":null},{"chain":"BNB","from_address":"MASTER","to_address":"PROVIDER-2","memo":"SEED","coins":[{"asset":"BNB.BNB","amount":200000000},{"asset":"BNB.LOK-3C0","amount":10000000000}],"gas":null},{"chain":"BTC","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"BTC.BTC","amount":200000000}],"gas":null},{"chain":"BTC","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"BTC.BTC","amount":500000000}],"gas":null},{"chain":"DOGE","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"DOGE.DOGE","amount":20000000000}],"gas":null},{"chain":"DOGE","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"DOGE.DOGE","amount":200000000000}],"gas":null},{"chain":"GAIA","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"GAIA.ATOM","amount":50000000000000}],"gas":null},{"chain":"GAIA","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"GAIA.ATOM","amount":50000000000000}],"gas":null},{"chain":"DASH","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"DASH.DASH","amount":2000000000}],"gas":null},{"chain":"DASH","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"DASH.DASH","amount":20000000000}],"gas":null},{"chain":"BTC","from_address":"MASTER","to_address":"PROVIDER-2","memo":"SEED","coins":[{"asset":"BTC.BTC","amount":500000000}],"gas":null},{"chain":"BCH","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"BCH.BCH","amount":200000000}],"gas":null},{"chain":"BCH","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"BCH.BCH","amount":200000000}],"gas":null},{"chain":"BCH","from_address":"MASTER","to_address":"PROVIDER-2","memo":"SEED","coins":[{"asset":"BCH.BCH","amount":200000000}],"gas":null},{"chain":"LTC","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"LTC.LTC","amount":200000000}],"gas":null},{"chain":"LTC","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"LTC.LTC","amount":200000000}],"gas":null},{"chain":"LTC","from_address":"MASTER","to_address":"PROVIDER-2","memo":"SEED","coins":[{"asset":"LTC.LTC","amount":200000000}],"gas":null},{"chain":"ETH","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"ETH.ETH","amount":40000000000000000000}],"gas":null},{"chain":"ETH","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"ETH.ETH","amount":40000000000000000000}],"gas":null},{"chain":"ETH","from_address":"MASTER","to_address":"USER-1","memo":"SEED","coins":[{"asset":"ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A","amount":400000000000000000000}],"gas":null},{"chain":"ETH","from_address":"MASTER","to_address":"PROVIDER-1","memo":"SEED","coins":[{"asset":"ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A","amount":400000000000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1-SYNTH","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BNB.BNB:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":10000000000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BNB.BNB:PROVIDER-1","coins":[{"asset":"BNB.BNB","amount":250000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:DOGE.DOGE:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":100000000000}],"gas":null},{"chain":"DOGE","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:DOGE.DOGE:PROVIDER-1","coins":[{"asset":"DOGE.DOGE","amount":150000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:GAIA.ATOM:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":100000000000}],"gas":null},{"chain":"GAIA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:GAIA.ATOM:PROVIDER-1","coins":[{"asset":"GAIA.ATOM","amount":150000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:DASH.DASH:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":100000000000}],"gas":null},{"chain":"DASH","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:DASH.DASH:PROVIDER-1","coins":[{"asset":"DASH.DASH","amount":15000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1-SYNTH","coins":[{"asset":"MAYA.CACAO","amount":10000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB/BNB:PROVIDER-1-SYNTH","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:PROVIDER-1","coins":[{"asset":"BNB/BNB","amount":10}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1-SYNTH","coins":[{"asset":"BNB.BNB","amount":100000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB/BNB:PROVIDER-1-SYNTH","coins":[{"asset":"BNB.BNB","amount":100000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BTC.BTC:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":10000000000000}],"gas":null},{"chain":"BTC","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BTC.BTC:PROVIDER-1","coins":[{"asset":"BTC.BTC","amount":250000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BTC/BTC:PROVIDER-1-SYNTH","coins":[{"asset":"BNB/BNB","amount":100000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BTC.BTC:PROVIDER-1","coins":[{"asset":"BTC/BTC","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1","coins":[{"asset":"BTC/BTC","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1","coins":[{"asset":"BTC/BTC","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BTC.BTC:PROVIDER-1-SYNTH","coins":[{"asset":"BTC/BTC","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:BTC/BTC:PROVIDER-1-SYNTH","coins":[{"asset":"BTC/BTC","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BCH.BCH:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"BCH","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BCH.BCH:PROVIDER-1","coins":[{"asset":"BCH.BCH","amount":150000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:LTC.LTC:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"LTC","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:LTC.LTC:PROVIDER-1","coins":[{"asset":"LTC.LTC","amount":150000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:ETH.ETH:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"ETH","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:ETH.ETH:PROVIDER-1","coins":[{"asset":"ETH.ETH","amount":400000000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"ETH","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A:PROVIDER-1","coins":[{"asset":"ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A","amount":4000000000000000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BNB.LOK-3C0:PROVIDER-1","coins":[{"asset":"BNB.LOK-3C0","amount":40000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:BNB.LOK-3C0:PROVIDER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-2","to_address":"VAULT","memo":"","coins":[{"asset":"BNB.BNB","amount":150000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-2","to_address":"VAULT","memo":"ABDG?","coins":[{"asset":"BNB.BNB","amount":150000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-1","to_address":"VAULT","memo":"ADD:","coins":[{"asset":"BNB.BNB","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-2","to_address":"VAULT","memo":"ADD:MAYA.CACAO","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-2","to_address":"VAULT","memo":"ADD:BNB.BNB:PROVIDER-2","coins":[{"asset":"MAYA.CACAO","amount":3000000000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-2","to_address":"VAULT","memo":"ADD:BNB.BNB:PROVIDER-2","coins":[{"asset":"BNB.BNB","amount":30000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-2","to_address":"VAULT","memo":"ADD:BNB.BNB:PROVIDER-2","coins":[{"asset":"BNB.BNB","amount":90000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-2","to_address":"VAULT","memo":"DONATE:BNB.BNB","coins":[{"asset":"MAYA.CACAO","amount":500000000000}],"gas":null},{"chain":"BNB","from_address":"PROVIDER-2","to_address":"VAULT","memo":"DONATE:BNB.BNB","coins":[{"asset":"BNB.BNB","amount":30000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":" ","coins":[{"asset":"MAYA.CACAO","amount":20000000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"ABDG?","coins":[{"asset":"MAYA.CACAO","amount":20000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB","coins":[{"asset":"BNB.BNB","amount":30000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BTC.BTC:USER-1","coins":[{"asset":"BNB.BNB","amount":500000000}],"gas":null},{"chain":"BTC","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"BTC.BTC","amount":1500000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:DOGE.DOGE:USER-1","coins":[{"asset":"BNB.BNB","amount":100000000}],"gas":null},{"chain":"DOGE","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"DOGE.DOGE","amount":10000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:GAIA.ATOM:USER-1","coins":[{"asset":"BNB.BNB","amount":100000000}],"gas":null},{"chain":"GAIA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"GAIA.ATOM","amount":10000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:DASH.DASH:USER-1","coins":[{"asset":"BNB.BNB","amount":100000000}],"gas":null},{"chain":"DASH","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"DASH.DASH","amount":1000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BCH.BCH:USER-1","coins":[{"asset":"BNB.BNB","amount":500000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:LTC.LTC:USER-1","coins":[{"asset":"BNB.BNB","amount":500000000}],"gas":null},{"chain":"LTC","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"LTC.LTC","amount":1500000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:ETH.ETH:USER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"ETH","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"ETH.ETH","amount":150000000000000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A:USER-1","coins":[{"asset":"MAYA.CACAO","amount":5000000000000}],"gas":null},{"chain":"BCH","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"BCH.BCH","amount":1500000}],"gas":null},{"chain":"ETH","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A","amount":150000000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:ETH.ETH:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB","coins":[{"asset":"BNB.BNB","amount":30000000},{"asset":"BNB.TCAN-014","amount":1000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:USER-1","coins":[{"asset":"MAYA.CACAO","amount":10000100000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:USER-1:26572599","coins":[{"asset":"MAYA.CACAO","amount":1000000000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:USER-1","coins":[{"asset":"MAYA.CACAO","amount":1000000000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BTC.BTC:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:DOGE.DOGE:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:DASH.DASH:100","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:GAIA.ATOM:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BCH.BCH:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:LTC.LTC:1000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"BNB.BNB","amount":10000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1:23853375","coins":[{"asset":"MAYA.CACAO","amount":1000000000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB:PROVIDER-1:22460886","coins":[{"asset":"MAYA.CACAO","amount":1000000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:bnbPROVIDER-1","coins":[{"asset":"BNB.BNB","amount":10000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:USER-1","coins":[{"asset":"BNB.LOK-3C0","amount":5000000000}],"gas":null},{"chain":"MAYA","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.LOK-3C0:USER-1","coins":[{"asset":"MAYA.CACAO","amount":500000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.BNB","coins":[{"asset":"BNB.LOK-3C0","amount":5000000000}],"gas":null},{"chain":"BNB","from_address":"USER-1","to_address":"VAULT","memo":"SWAP:BNB.LOK-3C0","coins":[{"asset":"BNB.BNB","amount":5000000}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BNB.BNB:5000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BNB.LOK-3C0","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BNB.BNB:10000","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:ETH.TKN-0X40BCD4DB8889A8BF0B1391D0C819DCD9627F9D0A","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:ETH.ETH","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:PROVIDER-1","coins":[{"asset":"BNB/BNB","amount":40493464}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"SWAP:MAYA.CACAO:PROVIDER-1","coins":[{"asset":"BTC/BTC","amount":2206199}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BTC.BTC","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:DOGE.DOGE","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:DASH.DASH","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:GAIA.ATOM","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:BCH.BCH","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null},{"chain":"MAYA","from_address":"PROVIDER-1","to_address":"VAULT","memo":"WITHDRAW:LTC.LTC","coins":[{"asset":"MAYA.CACAO","amount":1}],"gas":null}]
+var b = a.filter(a => ["DASH", "MAYA"].includes(a.chain) && ["BNB", "DOGE", "GAIA", "BTC", "BCH", "LTC", "ETH"].every(x => a.memo.match(x) == null))
+console.log(JSON.stringify(b, null, '  '))
+```
+
+That gets me close, but still needed to trip a few more out.
+
+Looked back at my thorchain notes. The smoke tests run maya + nodes against the
+python emulator, which does the same thing in python. There's also the event
+checking, and the balance checking, but if you get out coins mismatch, it's
+nothing to do with the cached/generated/exported json data in events/balances.
+That's what threw me again this time.
+
+So. 451. I think that's the issue here.
+The dash node has changed and if I remember correctly the smoke tests fail if
+the python emulator doesn't "estimate" the size of each transaction 100%
+accurately.
+Makes total sense, right.
+Maybe there's more data per tx now than there used to be, so we're getting 451,
+a size larger than the python generator is expecting, which is causing the fees
+to be calculated wrong, which is the cause of this mismatch.
+That's my guess.
+
+Now... where to begin.
+
+This is where having working smoke tests is critical.
+I want to strip all transaction away apart from dash to test this fast.
+
+Found this in `smoke_test_balances.json`. Oops.
+
+```
+<<<<<< HEAD
+            "BCH.BCH": 118168948,
+            "MAYA.CACAO": 72021727732
+        },
+        "POOL.LTC.LTC": {
+            "LTC.LTC": 125296107,
+            "MAYA.CACAO": 63807888857
+        },
+        "POOL.ETH.ETH": {
+            "ETH.ETH": 30075528,
+            "MAYA.CACAO": 99747310638
+=======
+            "BCH.BCH": 150000000,
+            "THOR.RUNE": 50000000000
+        },
+        "POOL.LTC.LTC": {
+            "LTC.LTC": 150000000,
+            "THOR.RUNE": 50000000000
+        },
+        "POOL.ETH.ETH": {
+            "ETH.ETH": 40000000,
+            "THOR.RUNE": 50000000000
+>>>>>>> 1dd40947d (Update smoke test balances/events)
+
+```
+
+You can set this in the python unit tests to see the full events:
+```
+self.maxDiff = None
+```
+
+```
+Exception: Cannot transfer. No DASH UTXO available for yZnyJAdouDu3gmAuhG3dTc66hroS4AXxnL
+```
+
+That address is the MASTER address.
+By the time I checked it, it did have utxos available.
+Perhaps the smoke tests just aren't waiting long enough.
+
+Yeah waiting manually and then just running the tests by hand made it work.
+Block 13 is about right.
+Now getting this.
+I'm probably off course here.
+
+```
+2:20AM INF app/x/mayachain/handler_deposit.go:59 > receive MsgDeposit coins=[{"amount":"1","asset":"MAYA.CACAO"}] from=tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzw memo=WITHDRAW:DASH.DASH:10
+2:20AM INF app/x/mayachain/handler_withdraw.go:33 > receive MsgWithdrawLiquidity withdraw address=tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzw withdraw basis points=10
+2:20AM INF app/x/mayachain/withdraw_current.go:74 > pool before withdraw balance RUNE=93750000000 balance asset=16000000000 pool units=100000000000
+2:20AM INF app/x/mayachain/withdraw_current.go:75 > liquidity provider before withdraw liquidity provider unit=100000000000
+2:20AM INF app/x/mayachain/withdraw_current.go:105 > imp loss calculation deposit value=187890625000 protection=0 redeem value=187500000000
+2:20AM INF app/x/mayachain/withdraw_current.go:169 > client withdraw RUNE=93750000 asset=16000000 units left=99900000000
+2:20AM INF app/x/mayachain/withdraw_current.go:175 > pool after withdraw balance RUNE=93656250000 balance asset=15984000000 pool unit=99900000000
+2:20AM INF app/x/mayachain/manager_txout_current.go:490 > tx out item has zero coin tx_out="To Address:tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzwAsset:MAYA.CACAOAmount:0Memo:OUT:6A4EBFD2881BE3405599E5F9DC80E45C4BF380C95560E596FB6F5415A1860EB6GasRate:2000000000"
+2:20AM ERR app/x/mayachain/handler_withdraw.go:41 > fail to process msg withdraw error="2 errors occurred:\n\t* prepare outbound tx not successful\n\t* fail to prepare outbound tx: tx out item has zero coin\n\n"
+2:20AM INF app/x/mayachain/manager_txout_current.go:490 > tx out item has zero coin tx_out="To Address:tmaya1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6z6lxzwAsset:MAYA.CACAOAmount:0Memo:REFUND:6A4EBFD2881BE3405599E5F9DC80E45C4BF380C95560E596FB6F5415A1860EB6GasRate:2000000000"
+2:20AM ERR app/x/mayachain/helpers.go:100 > fail to prepare outbund tx error="fail to prepare outbound tx: tx out item has zero coin"
+```
+
+That's enough for today.
+
+### 23.06.2023 Friday 3h
+
+Right so working on other projects I noticed some of the commands now require
+a wallet url as part of the jsonrpc request.
+
+How much this will effect us, I'm not sure at the moment.
+
+Last time I left this I had my own branch `add-dash-chain2` which fixed the unit
+tests which are responsible for generating the smoke tests.
+
+This was the main fix: `self.dash_estimate_size = 451`
+
+Have they tested the smoke tests with `self.dash_estimate_size = 451` in
+`test/smoke/mayachain/mayachain.py`? I assume so, that's merged into my branch
+now.
+
+So they want help rebasing my branch onto develop. Why not merge develop back
+into my branch? That's quite often easier.
+
+Okay so the smoke test `balances/events` json have conflicts.
+Along with `mayachain.py`.
+
+I think the fastest way would be to fix the smoke unit tests, regenerate the
+balances/events, see how that diffs against the current develop branch, and if
+it just adds dash, we're good. If it also changes values accross other coins,
+I'll go back to the develop branch and run the smokes again. If those fail,
+then we're stuck, if they pass, then I can come back to this branch and try
+either the merge again with painsteaking attention to what dash is doing, or
+even worse, manually go through every god damn transaction.
+
+Whoa, look at this:
+
+```
+The following paths are ignored by one of your .gitignore files:
+test/smoke/data/smoke_test_balances.json
+```
+
+I did a WIP commit which removed balances/events then re-generated them, and git
+has been configured to completely ignore balances. So we've had files in the
+repo which have been committed and subsequently added to the gitignore file.
+
+Which one is it? Ignore completely? Commit and preserve for all eternity? I'm
+guessing the former is more likely, and it's been commited accidentily, seeing
+as they're supposed to be throw-away files that just get regenerated (so long
+as the unit tests work)
+
+I'm going to remove the balances from `.gitignore` though. It doesn't hurt to
+start from a place of security and safety.
+
+Okay this attempt isn't exactly going to plan. I have the files in place, but
+a lot seemed to change from develop. I'll give the smokes a go anyway, but...
+another way of tackling this might be to:  
+run the develop smoke tests (they should be fine)  
+run the develop smoke units  
+  if they change the balances/events, checkout, update the unit tests, try again  
+  repeat until you can generate the same expected balances/events as the successful develop branch
+then switch over to dash and go from there
+
+Okay want the last 2 commits on my vm.
+```
+gd head~2..head > /tmp/t.patch
+scp /tmp/t.patch adc-vm:/tmp/t.patch
+
+git apply /tmp/t.patch
+```
+
+First run:
+
+```
+E[2023-06-23 19:49:03,750] Status 500 - timed out waiting for tx to be included in a block
+E[2023-06-23 19:49:03,750] Smoke tests failed
+```
+
+Second run. All good. Amazing.
+
+Pushed to maya add dash branch, let them know.
+
