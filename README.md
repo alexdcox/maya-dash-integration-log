@@ -2668,12 +2668,7 @@ https://www.explorer.mayachain.info/nodes/
 15.04.2023 Saturday       1h
 17.04.2023 Monday         1h
 18.04.2023 Tuesday        1h
-09.06.2023 Friday         6h
-12.06.2023 Monday         4h
-13.06.2023 Tuesday        5h
-14.06.2023 Wednesday     10h
-23.06.2023 Friday         3h
-Total                50m 41h
+Total                50m 13h
 ```
 
 ### 18.03.2023 Saturday 20m
@@ -3011,6 +3006,17 @@ aws eks update-kubeconfig --region us-east-2 --name dash-maya
 ```
 
 `NET=mainnet NAME=mayanode-stagenet TYPE=validator make status`
+
+## Batch Four
+
+```
+09.06.2023 Friday         6h
+12.06.2023 Monday         4h
+13.06.2023 Tuesday        5h
+14.06.2023 Wednesday     10h
+23.06.2023 Friday         3h
+Total                    28h
+```
 
 ### 09.06.2023 Friday 6h
 
