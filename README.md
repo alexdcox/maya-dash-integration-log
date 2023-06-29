@@ -3015,7 +3015,9 @@ aws eks update-kubeconfig --region us-east-2 --name dash-maya
 13.06.2023 Tuesday        5h
 14.06.2023 Wednesday     10h
 23.06.2023 Friday         3h
-Total                    28h
+27.06.2023 Tuesday        6h
+28.06.2023 Wednesday      5h
+Total                    29h
 ```
 
 ### 09.06.2023 Friday 6h
@@ -4303,4 +4305,271 @@ E[2023-06-23 19:49:03,750] Smoke tests failed
 Second run. All good. Amazing.
 
 Pushed to maya add dash branch, let them know.
+
+### 27.06.2023 Tuesday 6h
+
+Nothing ever seems to be quite done.  
+
+In the case of Dash / Maya, we've realised that too many non-chainlocked blocks
+are being skipped. Itzamna reported from block `1894590` to `1894659`.
+
+That's 69 blocks! Usually fun to see, but here, unfortunately not. With an
+average block time of 2.5m that would be nearly 3h of waiting.
+
+DAMN.
+
+Although Dash community member xkcd has reported no chainlock delays in the past
+24h, so perhaps it's a localised issue. Either way, the plan to accomodate this
+is:
+
+- Ignore non-chainlocked blocks
+- Wait for a CL block
+- If that block is more than 1 block since the last CL'd block, we follow the
+  ancestor chain backwards until the first non-CL'd block since the last CL'd
+  block and replay all those blocks.
+
+Right waiting for a new mainnet node to catch up before I can test the rpc flow
+that makes the most sense, have a little PoC ready.
+
+In the mean time may as well plan out how I'm going to tackle the TC/Maya
+codebase.
+
+**Key Components**
+
+`BlockScannerFetcher`
+- `FetchMemPool`
+- `FetchTxs`
+- `GetHeight`
+
+`BlockScanner`
+- `FetchLastHeight`
+- `scanBlocks`
+- `scanMempool`
+
+`ChainClient`
+- `OnObservedTxIn`
+- `GetHeight`
+- `GetConfirmationCount`
+
+`Observer`
+- `globalTxsQueue`
+- `chunkifyAndSendToThorchain`
+- `processTxIns`
+- `sendDeck`
+
+**Notes / Recap**
+
+• `TxIn` is an array of transactions from a specific chain.
+
+• A "deck" is `[]types.TxIn` which is - besides confusing thanks to the lack of
+  plurals - an array of an array of transactions, because TxIn is itself a
+  multitude of transactions.
+
+• Each chain has a `BlockScanner`, which polls each client at the maya block
+  rate and forwards txs to the `Observer` via the `globalTxsQueue`.
+
+• `FetchTxs` is **only** called within a `BlockScanner`, with a specific block
+  height. `scanBlocks` within `BlockScanner`s are the only place where this
+  happens.
+
+• `GetHeight` is **always** called before `FetchTxs`.
+
+• `FetchMempool` within each `BlockScanner` also results in transactions being
+  passed to the `globalTxsQueue`.
+
+• The `Observer` collects these transactions onto a "deck" - they also call a
+  multitude of decks a "deck" so be careful there - within `processTxIns`.
+  These are finally broadcast to maya in the `sendDeck` method, which is called
+  repeatedly every maya block duration.
+
+• The `Observer` sends the entire deck back to each `ChainClient` implementation
+  via `GetConfirmationCount` during a `sendDeck`. This is the only place where
+  `GetConfirmationCount` is actually used.
+
+• Maya doesn't need to scan the mempool for ETH or BNB.
+
+• Transactions in the ETH mempool are confirmed.
+
+• `getBlock` within the dash ChainClient is called by `FetchTxs`,
+  `GetConfirmationCount` **but not (bypassed by?)** `ConfirmationCountReady`.
+
+**Resolve These**
+
+- What if the block height of a chain client has moved say, 4 blocks since the
+  last maya block?
+
+  The `BlockScanner` always moves along the chain one block at
+  a time at the same rate as maya chain. So you can't have more than 1 chain
+  client block to 1 maya block. Is it safe then to assume the maya block time
+  HAS to be faster than the chain client block time or else it would slowly
+  fall behind - I think so, yes.
+
+- Where does the confirmation count checking happen?
+
+  The `ChainClient`s own `BlockScanners` query them periodically and forward txs
+  to the `Observer`. The `Observer` builds a deck of txs and then passes them
+  all back to the `ChainClient` via the `GetConfirmationCount` func, which does
+  this little number: `totalTxValue / totalFeeAndSubsidy = confirmationsNeeded`
+  and returns that to the `Observer`, we then send the entire deck back to the
+  `ChainClient` again via the `ConfirmationCountReady` func which should return
+  a boolean.
+
+- Can we remove the mempool logic for dash?
+
+  We still have to conform to the interface, but we could return an empty array.
+  TBC on this one...
+
+- What happens if the blockscanner asks for the mempool and it contains txs that
+  we don't want to include yet because they haven't been CL'd?
+
+  TBC
+
+- `ReportSolvency` on `ChainClient` accepts a block height integer and is part of
+  the SolvencyCheckProvider interface. Do we need to worry that it can run ahead
+  of the normal block scanning?
+
+  Nope. `SolvencyCheckRunner` always starts with `GetHeight`.
+
+- How do we broadcast transactions from a previous block?
+
+- In the blockscanner it says we scan the mempool as well as blocks so maya is
+  still aware of outbound transactions while a chain is halted. Can the mempool
+  contain transactions that have not been CL'd? I think so. How does that effect
+  us?
+
+- There's this disturbing piece to `ConfirmationCountReady`:
+  ```
+    if txIn.MemPool {
+      return true
+    }
+  ```
+
+  So the `Observer` WILL be sent mempool txs via the `BlockScanner`. It will
+  then check those txs are good to go via the method above, which always
+  returns true. AFAIK mempool txs are unconfirmed txs - so what the fuck?? This
+  is happening accross all chains.
+
+**Proposition**
+
+After reading the codebase, it seems like the best way to implement the plan is
+to stall the block number returned by `GetHeight` until a CL'd block, and remove
+the code in `getBlock` which actually prevents getting those blocks entirely.
+
+Everything seems to rely on `GetHeight`, apart from the mempool stuff which I
+haven't quite figured out. It looks like mempool txs CAN get to the `Observer` 
+deck, which then calls `ConfirmationCountReady` which seems to bypass the
+`GetConfirmationCount` / `GetHeight` approach.
+
+This line, in the `BlockScanner`, makes me think - so long as the mempool stuff
+is ok - nothing will happen if we stall maya in the above way:
+
+```go
+if chainHeight < currentBlock {
+  time.Sleep(b.cfg.BlockHeightDiscoverBackoff)
+  continue
+}
+```
+
+Oh wait, it looks like it sends unconfirmed txs to maya WITH a block height at
+which they should count as confirmed. That's not going to work for dash seeing
+as that is variable depending on how long the next CL'd block takes.
+
+Yeah I'm going to get some sleep now. Interesting though, maybe we can afford to
+rip out the mempool logic for dash...
+
+TBC
+
+### 28.06.2023 Wednesday 5h
+
+Okay, mempool stuff...
+
+They're suggesting wait 14400 maya blocks (1day)
+
+576 dash blocks in a day, 2.5m  
+14400 maya blocks in a day, 6s
+
+```
+dash-cli getblock $(dash-cli getblockhash 1894590) true
+```
+
+Yeah that WAS the problem block mentioned by Itzamna.  
+Looks fine now. As in - it's chainlocked.
+
+Alright we've adjusted our plan:
+- follow forwards NOT BACKWARDS from the latest cl'd block, just incase we end up following an orphan chain
+- assume blocks don't return retroactively cl'd (even though they have for both of our nodes) because QE said it could happen, let's be safe
+- exponentially backoff node requests while polling for the cl chain, as it may get to 200+ blocks or something crazy
+- remove the mempool logic for dash, it requires sending txs with a X block conf. height which we won't know
+
+How do I find out WHEN chainlocks were implemented for a chain.  
+The block that I can skip to essentially?  
+https://github.com/dashpay/dips/blob/master/dip-0008.md
+
+```
+dash-cli getblockchaininfo | jq -r '.bip9_softforks.dip0008.since'
+```
+
+I need to test this against regtest, testnet and mainnet ideally because they
+will all have different chainlock starting points (if at all) and the code
+should work for all situations. Also while a node is catching up the block
+height might be before the chainlock dip0008, but that dip will still show as
+active on the chain.
+
+
+Not sure how descriptive I need to be with the `GetHeight` method.  
+We deliberated a fair bit to get to our current plan.  
+```
+// There are a couple of things to consider though:
+// • The chainlock feature hasn't been around since the release of dash. As a more recent feature, the original block
+//   ledger consists of purely non-chainlocked blocks. We can ignore these since we're deploying after chainlocks.
+// • Chainlocking is carried out by the layer 2 masternode quorum, and occurs after a block propagates the network.
+// • It is possible for the network to split into sister chains of non-chainlocked blocks, before it settles on a
+//   single chain resolution and retroactively chainlocks blocks.
+//
+// Situation:
+//  We are at a block number that's before the chainlock feature was deployed on this network.
+// Action:
+//  Return the actual node height - it hasn't reached the area with edge-cases yet.
+//
+// Situation:
+//  We don't have a cached value for the latest chainlocked block.
+// Action:
+//  Iterate backwards through the block history from the current node height until we find a chainlocked block.
+//
+// Situation:
+//  We have a cached value for the latest chainlock height.
+//  The nodeHeight is the same value as the lastChainlockHeight.
+// Action:
+//  Return either value - the block is chainlocked.
+//
+// Situation:
+//  We have a cached value for the latest chainlock height.
+//  The nodeHeight is greater than the lastChainlockHeight.
+// Action:
+//  Scan forwards from our cached value to find the next chainlocked block, cache and return that height
+//
+```
+
+```
+1dd40947d (HEAD -> add-dash-chain, adc/add-dash-chain) Update smoke test balances/events
+b0ab68dd0 (HEAD -> origin/add-dash-chain, origin/origin/add-dash-chain) Fix smoke balances and events
+```
+
+Have a weird branch `origin/origin/...` because I thought checking out would auto
+track the origin branch - like it used to?? - but it didn't.  
+Some gitfu required.  
+
+Well I thought I was done, have the mempool stuff ripped out, the getheight
+rework in, the exponential backoff ready, then I noticed a note on
+`OnObservedTxIn`: "do we need to worry about this?" Well I wasn't worried but
+maybe now I should be...
+
+It's called within `chunkifyAndSendToThorchain` (shhh they mean Maya) ... yeah
+that's it. That happens after we've sent txs to the observer deck, which only
+happens now after the blockscanner processes the next block height from the node
+which we don't tell it to, until we see a chainlocked block.
+
+I think we might be done here. Now how the hell are we going to test this!?
+
+Will sleep on it...
 
