@@ -3017,7 +3017,7 @@ aws eks update-kubeconfig --region us-east-2 --name dash-maya
 23.06.2023 Friday         3h
 27.06.2023 Tuesday        6h
 28.06.2023 Wednesday      5h
-Total                    29h
+Total                    39h
 ```
 
 ### 09.06.2023 Friday 6h
