@@ -4573,3 +4573,215 @@ I think we might be done here. Now how the hell are we going to test this!?
 
 Will sleep on it...
 
+## Batch Five
+
+```
+09.06.2023      4h
+06.07.2023  40m
+11.07.2023  20m
+18.07.2023      1h
+Total           6h
+```
+
+### 29.06.2023 Thursday 4h
+
+They're asking for a make update.  
+Branch? Latest activity is on `master`.
+
+```
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make update
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make logs
+
+NET=mainnet NAME=mayanode-stagenet TYPE=validator make set-version
+```
+
+So I thought `develop` was messy but Itzamna pointed me in the right direction -  
+it was just a case of missing the openapi and protob commands.
+
+Alright time to focus on getting these tests passing (they don't)  
+Go get is doing some more funky stuff  
+
+```
+go: downgraded github.com/cosmos/cosmos-sdk v0.45.9 => v0.45.1
+go: downgraded github.com/cosmos/iavl v0.19.3 => v0.19.0
+```
+
+Got round it by deleting `go.sum` then running `go mod tidy`
+
+I'm introducing a new dep, hope maya don't mind: `gjson`.
+
+Need to mock the block missing error.
+
+```
+curl --user user --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "getblockhash", "params": [9999999] }' -H 'content-type: text/plain;' http://127.0.0.1:9998/
+```
+
+```
+{"result":null,"error":{"code":-8,"message":"Block height out of range"}}
+```
+
+```
+0000000000000004582928ba5bd423e3d57a93fc42e05ed17e29d3bc2bf967a0
+63 leading 0s
+fmt.Printf("%064d", 5)
+```
+
+Ah I don't actually need that anyway.
+
+```
+go clean -testcache
+go test -tags mocknet ./...
+go test -tags mocknet ./bifrost/pkg/chainclients/dash
+go test -v -tags mocknet ./bifrost/pkg/chainclients/dash
+```
+
+Dash package test is passing, but taking more than 80s.  
+That's not good.
+
+Hang on do any others take ages too?  
+Not really. Interestingly, dash takes that long on develop before my recent changes to GetHeight.  
+
+Looks like it could be this slowing everything down:
+```
+{
+    "level": "error",
+    "module": "dash",
+    "error": "fail to get mimir: failed to GET from mayachain: GET http://127.0.0.1:62048/mayachain/mimir/key/MaxUTXOsToSpend giving up after 5 attempts",
+    "time": "2023-06-29T20:41:21-07:00",
+    "message": "fail to get MaxUTXOsToSpend"
+}
+```
+
+Doge has a simmilar error:
+
+```
+{
+    "level": "error",
+    "module": "dogecoin",
+    "error": "fail to unmarshal mimir: unexpected end of JSON input",
+    "time": "2023-06-29T20:43:47-07:00",
+    "message": "fail to get MaxUTXOsToSpend"
+}
+```
+
+http://127.0.0.1:62528/mayachain/mimir/key/MaxUTXOsToSpend  
+http://127.0.0.1:62331/mayachain/node/tmaya1xwutnvyn44gc2uh8fqkv4lpejyt7x2urz8rk2g  
+
+Noticed a mock response in the other chainclients we don't have for dash.  
+Added, tests now under 20s.  
+Much better.  
+
+I'm going to call it there for today and move onto the smoke tests tomorrow.
+
+### 06.07.2023 Thursday 40m
+
+Maya team said they had to comment out `BitcoindPost19` from
+`GetBlockChainInfoResult`.  
+
+Researched and advised Itzamna.
+
+
+### 11.07.2023 Tuesday 20m
+
+So it turns out we don't have to worry about ancestor blocks being chainlocked
+after descendant blocks, and we can rely on the dash rpc call:
+
+`dash-cli getbestchainlock`
+```
+{
+  "blockhash": "000000000000000da515b79fbce08b206f0b973f1e66398df9e3f92b45c4b295",
+  "height": 1902374,
+  "signature": "80107c28c142ec914fb5ac56b919897f740ba04857fa33b864ee9cea5f2fee6a98150ca631c0fa0c90d924f5906c2634119a7d2843d1dc6208d29a2be096ce00e97ebd2221cfba2d15a0f0e1d898ddffb2dae426405cf80211dc57f1000e7a9a",
+  "known_block": true
+}
+```
+
+I'll go ahead and implement that now and update my test.
+
+  BlockHash string
+  Height uint64
+  Signature string
+  KnownBlock bool `json:"known_block"`
+
+Putting `GetBestChainlock` under `GetBestBlockHash`
+
+Scratch that maya are happy with how it is atm...
+
+
+### 18.07.2023 Tuesday 1h
+
+Maya team are saying chainlocked blocks are not being parsed on mainnet.  
+
+Ash verified it's impossible to have a situation on a dash node where a parent
+block returns not chainlocked but a descendant block does, even temporarily.  
+
+This means we can go back to the original plan of using `getbestchainlock`.
+
+`dash-cli getbestchainlock`
+> error code: -32603
+> error message:
+> Unable to find any chainlock
+
+`dash-cli getblockcount`
+> 1904691
+
+
+`dash-cli getblock $(dash-cli getblockhash 1904691) true`
+```
+{
+  "hash": "000000000000000e5d47d485aafcac8bb1e7378b8f5430b9a747a1155489b3e8",
+  "confirmations": 1396,
+...
+  "chainlock": true
+}
+```
+
+First thing I noticed, is that when a node is first started the rpc interface
+becomes available before it has set the first chainlocked block in memory yet.
+
+Running `getbestchainlock` a few seconds later returned the correct response:
+
+```
+{
+  "blockhash": "00000000000000143ffaf9b501e5a7fab059925d50e47d88aba9d6ed25eac3f5",
+  "height": 1906087,
+  "signature": "9482cd4ca4c4a38007a5e5ff67726ad8a94abf58c7baae368540d3933bc345d2bd0949eecb8016e6f293d2ec4b66f28c10ab4a4238a4fb63f625df7a6e1321e14336e2c1893cfa4d0ec8fe00301de53747f37f2212ad3cf37fb7f293e2c4499d",
+  "known_block": true
+}
+```
+
+I was in the process of adding the function to `dashd-go`.  
+Updated `chainsvrcmds` and `chainsvrresults`.  
+Making sure the tests pass...  
+
+Okay, now I just want to actually test that rpc client against my mainnet node
+quickly instead of a mocked response.
+
+```go
+func TestTemp(t *testing.T) {
+  conf := &ConnConfig{
+    Host:                 "localhost:9998",
+    Endpoint:             "http://localhost:9998",
+    User:                 "user",
+    Pass:                 "pass",
+    DisableTLS:           true,
+    HTTPPostMode:         true,
+  }
+  client, err := New(conf, nil)
+  if err != nil {
+      panic(err)
+  }
+  rsp, err := client.GetBestChainlock()
+  if err != nil {
+      panic(err)
+  }
+  fmt.Printf("result: %+v", rsp)
+}
+```
+
+Nice, looks good.  
+Pushed that to mayachain/dashd-go  
+`go get -u gitlab.com/mayachain/dashd-go@5795f450`  
+
+
+
