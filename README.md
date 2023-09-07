@@ -4784,4 +4784,120 @@ Pushed that to mayachain/dashd-go
 `go get -u gitlab.com/mayachain/dashd-go@5795f450`  
 
 
+## Batch Six
+
+```
+04.08.2023 1h
+05.09.2023 2h
+Total      3h
+```
+
+
+### 04.08.2023 Friday 1h
+
+Spent an hour working through some dash tx signing failures.
+Helped maya community member and genesis node runner Runetard deal with the same.
+
+
+### 05.09.2023 Tuesday 2h
+
+Maya team have asked me to help with the dash branch and gas estimations.
+
+
+This is the raw transaction that caused an error:
+
+https://insight.dashevo.org/insight-api/tx/9363a3f859a5376ddbf13d5c03824e6bfce74371679ab2b0ec346fae1a04b3cc
+
+```
+dash-cli getrawtransaction 9363a3f859a5376ddbf13d5c03824e6bfce74371679ab2b0ec346fae1a04b3cc
+```
+
+Rawtx hex:
+```
+0100000002936f6792a0c667fb42433cfc17655527f6c6f900549bac59e318f426e00ae011010000006a473044022056958640db2e298f65e0a628d66ae8dc3f27e7e56f102df15afd872dfcec51ad022024814d0166b9c2d2e42361d6449a2ec8f4a669b60b873214655e409e5b48c22c012103c1aa744832165f9cf784402203bbbb0c44ad688afcf6784f3070fd5ea6893ef5ffffffffe1e9f7108e33f5bf6b6d1a871c47936accd6ceabd75227339d56f74e9ccf041a010000006a47304402200aaccc279324c9c51968c1a0c66c3d4f2ef8f957166a763e65569d45036cc0f802204650f54ced5b64893f4639aedc03beacf39d3f3806ac3c2c9f03f5c309369a64012103c1aa744832165f9cf784402203bbbb0c44ad688afcf6784f3070fd5ea6893ef5ffffffff0375f59c0d000000001976a914e800e9e2a25b2304e12846e2c3ff6b191dd48a3488aca1d25e77520000001976a91410abb46d44fd309bb8341dd0c6909a50bd1f436788ac0000000000000000466a444f55543a3135464445313731463235303335364542453431364432303344353134313730324230393833454341413042323730414339444132453543393532303243353300000000
+```
+
+```
+{"chain":"DASH","to":"XwqZhEi4a4t3Ynde8aLomJhx1BrmJRR2Nx","vault_pubkey":"mayapub1addwnpepq0q65azgxgt9l88hs3qzyqamhvxyfttg3t70v7z0xpc06h4x3yl026txtlk"
+"coins":[{"asset":"DASH.DASH","amount":"228390231"}],"memo":"OUT:15FDE171F250356EBE416D203D5141702B0983ECAA0B270AC9DA2E5C95202C53"
+"max_gas":[{"asset":"DASH.DASH","amount":"1824","decimals":8}]
+"gas_rate":6
+"in_hash":"15FDE171F250356EBE416D203D5141702B0983ECAA0B270AC9DA2E5C95202C53"
+"out_hash":"","aggregator":""
+
+max gas: [1824 DASH.DASH], however estimated gas need 3588
+total: 354413587910, to customer: 228390231, gas: 1824
+send 354185195855 back to self
+```
+
+2.28390231 in logs
+2.28390261 in explorer?
+
+```
+2 inputs
+2 outputs + 1 memo output
+
+memo hex 4f55543a31354644453137314632353033353645424534313644323033443531343137303242303938334543414130423237304143394441324535433935323032433533
+memo len = 136 hex chars = 68 bytes
+
+actual = 451
+4 + 1 + (147 * 2) + 1 + (34 * 2) + 11 + 68 + 4 = 451
+4 + 1 + (147 * 1) + 1 + (34 * 2) + 11 + 68 + 4 = 304
+
+147 bytes = 294 hex chars
+34 bytes = 68 hex chars
+```
+
+Just double-checking the estimation is accurate:
+```
+01000000 <-- version
+02 <-- vin count
+
+936f6792a0c667fb42433cfc17655527f6c6f900549bac59e318f426e00ae011010000006a473044
+022056958640db2e298f65e0a628d66ae8dc3f27e7e56f102df15afd872dfcec51ad022024814d01
+66b9c2d2e42361d6449a2ec8f4a669b60b873214655e409e5b48c22c012103c1aa744832165f9cf7
+84402203bbbb0c44ad688afcf6784f3070fd5ea6893ef5ffffffff <-- vin1
+
+e1e9f7108e33f5bf6b6d1a871c47936accd6ceabd75227339d56f74e9ccf041a010000006a473044
+02200aaccc279324c9c51968c1a0c66c3d4f2ef8f957166a763e65569d45036cc0f802204650f54c
+ed5b64893f4639aedc03beacf39d3f3806ac3c2c9f03f5c309369a64012103c1aa744832165f9cf7
+84402203bbbb0c44ad688afcf6784f3070fd5ea6893ef5ffffffff <-- vin2
+
+03 <-- vout count
+75f59c0d000000001976a914e800e9e2a25b2304e12846e2c3ff6b191dd48a3488ac
+a1d25e77520000001976a91410abb46d44fd309bb8341dd0c6909a50bd1f436788ac
+
+0000000000000000466a44 <- memo tx prefix
+4f55543a313546444531373146323530333536454245343136443230334435313431373032423039
+38334543414130423237304143394441324535433935323032433533 <- memo
+
+00000000 <-- locktime
+```
+
+Okay looks good.
+
+Where do the fees get into maya?
+```
+msg_network_fee.proto            MsgNetworkFee
+type_network_fee.proto           NetworkFee
+type_observed_network_fee.proto  ObservedNetworkFeeVoter
+```
+
+```
+docker exec dash_mainnet dash-cli getblockstats 1930185
+```
+
+`avgfeerate: 2`
+
+So if we set it to 6?
+
+```
+for i in $(seq 1 10000);do
+x=$((1922934 + $i))
+docker exec dash_mainnet dash-cli getblockstats "$x" 2>&1 | jq '.avgfeerate'
+done
+```
+
+Left it with Itzamna to finish off.
+
 
